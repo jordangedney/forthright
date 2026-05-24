@@ -1,0 +1,1102 @@
+#!/usr/bin/env python3
+"""
+ember — a threaded-code explorer for forthright.
+
+A terminal UI that single-steps fr's indirect-threaded-code engine: watch the IP
+walk a thread, watch values land on the data stack, and watch docol/EXIT hop in
+and out of colon words. By default it drives the real ./fr binary under ptrace
+(class NativeVM); --python swaps in a pure-Python model (class VM).
+
+Either backend is exercised headlessly:
+    python3 ember --selftest          # Python model
+    python3 ember --native-selftest   # real ./fr under ptrace
+
+Style mirrors ~/downloads/index.html (the "NEXT-runner" design): Nord palette and
+the same colour coding — ip (cyan), stack (orange), hop (purple), exec (yellow).
+"""
+
+import os
+import sys
+import struct
+import curses
+
+# --------------------------------------------------------------------------
+# Nord-ish palette from the design file (index.html :root vars).
+PALETTE = {
+    "bg":        "#1c2028",
+    "panel":     "#2e3440",
+    "border":    "#3b4252",
+    "border_hi": "#4c566a",
+    "text":      "#eceff4",
+    "text_mid":  "#d8dee9",
+    "text_dim":  "#7b8493",
+    "ip":        "#88c0d0",   # instruction pointer  (cyan)
+    "stack":     "#d08770",   # data stack           (orange)
+    "hop":       "#b48ead",   # docol / EXIT hops    (purple)
+    "exec":      "#ebcb8b",   # currently executing  (yellow)
+    "ok":        "#a3be8c",   # success              (green)
+    "red":       "#bf616a",   # error                (red)
+    "frost":     "#8fbcbb",   # accents              (teal)
+}
+
+
+# ==========================================================================
+# Forth engine — an indirect-threaded-code model matching fr.s.
+# ==========================================================================
+
+class ForthError(Exception):
+    pass
+
+
+class Word:
+    """A dictionary entry. `kind` drives both execution and display.
+
+    prim  : a Python callable implementing a primitive (kind='prim')
+    colon : `body` is a flat list of cells = the threaded code (kind='colon')
+    lit   : the LIT sentinel; the following body cell is its inline value
+    exit  : the EXIT sentinel; returns from a colon definition
+    """
+    def __init__(self, name, prim=None, body=None, immediate=False, kind="prim"):
+        self.name = name
+        self.prim = prim
+        self.body = body
+        self.immediate = immediate
+        self.kind = kind
+
+
+class VM:
+    def __init__(self):
+        self.dstack = []          # data (parameter) stack
+        self.rstack = []          # return stack: frames (Word, ip) to resume
+        self.words = []           # dictionary, oldest -> newest (search reversed)
+        self.output = []          # lines emitted by `.` etc.
+        self.frame = None         # current (Word, ip) being executed, or None
+        self.halted = True        # no live thread
+        self.error = None
+        self.quit = False         # set by `bye`
+        self.steps = 0            # steps taken on the current thread
+        self.pulse = set()        # which panels changed last step: stack/hop/exec
+        self.LIT = Word("lit", kind="lit")
+        self.EXIT = Word("exit", kind="exit")
+        self._boot()
+
+    # ---- dictionary -----------------------------------------------------
+    def define(self, w):
+        self.words.append(w)
+
+    def find(self, name):
+        for w in reversed(self.words):       # newest first -> redefinition shadows
+            if w.name == name:
+                return w
+        return None
+
+    def log(self, text):
+        self.output.append(text)
+
+    # ---- primitives -----------------------------------------------------
+    def _boot(self):
+        def need(n):
+            if len(self.dstack) < n:
+                raise ForthError("stack underflow")
+
+        def p_dup(vm):   need(1); vm.dstack.append(vm.dstack[-1])
+        def p_drop(vm):  need(1); vm.dstack.pop()
+        def p_swap(vm):  need(2); vm.dstack[-1], vm.dstack[-2] = vm.dstack[-2], vm.dstack[-1]
+        def p_over(vm):  need(2); vm.dstack.append(vm.dstack[-2])
+        def p_rot(vm):   need(3); a = vm.dstack.pop(-3); vm.dstack.append(a)  # ( a b c -- b c a )
+        def p_add(vm):   need(2); b = vm.dstack.pop(); vm.dstack[-1] += b
+        def p_sub(vm):   need(2); b = vm.dstack.pop(); vm.dstack[-1] -= b
+        def p_mul(vm):   need(2); b = vm.dstack.pop(); vm.dstack[-1] *= b
+        def p_div(vm):
+            need(2); b = vm.dstack.pop()
+            if b == 0: raise ForthError("division by zero")
+            a = vm.dstack.pop(); vm.dstack.append(int(a / b) if (a < 0) ^ (b < 0) else a // b)
+        def p_mod(vm):
+            need(2); b = vm.dstack.pop()
+            if b == 0: raise ForthError("division by zero")
+            a = vm.dstack.pop(); vm.dstack.append(a - b * (int(a / b) if (a < 0) ^ (b < 0) else a // b))
+        def p_neg(vm):   need(1); vm.dstack[-1] = -vm.dstack[-1]
+        def p_eq(vm):    need(2); b = vm.dstack.pop(); vm.dstack[-1] = -1 if vm.dstack[-1] == b else 0
+        def p_lt(vm):    need(2); b = vm.dstack.pop(); vm.dstack[-1] = -1 if vm.dstack[-1] < b else 0
+        def p_gt(vm):    need(2); b = vm.dstack.pop(); vm.dstack[-1] = -1 if vm.dstack[-1] > b else 0
+        def p_dot(vm):   need(1); vm.log(str(vm.dstack.pop()))
+        def p_dots(vm):  vm.log("<%d> %s" % (len(vm.dstack), " ".join(map(str, vm.dstack))))
+        def p_bye(vm):   vm.quit = True
+
+        prims = [
+            ("dup", p_dup), ("drop", p_drop), ("swap", p_swap), ("over", p_over),
+            ("rot", p_rot), ("+", p_add), ("-", p_sub), ("*", p_mul),
+            ("/", p_div), ("mod", p_mod), ("negate", p_neg),
+            ("=", p_eq), ("<", p_lt), (">", p_gt), (".", p_dot), (".s", p_dots),
+            ("bye", p_bye),
+        ]
+        for name, fn in prims:
+            self.define(Word(name, prim=fn, kind="prim"))
+
+        # square, defined "in the language" — gives an instant colon word to step.
+        self.define(Word("square", body=[self.find("dup"), self.find("*"), self.EXIT],
+                         kind="colon"))
+
+    # ---- compiling typed input -----------------------------------------
+    def _compile_token(self, tok, body):
+        """Append the cells for one token to `body`. Returns None or error str."""
+        try:
+            n = int(tok)                     # parse fully BEFORE emitting anything
+        except ValueError:
+            w = self.find(tok)
+            if w is None:
+                return "%s ?" % tok
+            body.append(w)
+            return None
+        body.append(self.LIT)
+        body.append(n)
+        return None
+
+    def feed(self, line):
+        """Process a typed line. Definitions register immediately; remaining
+        executable tokens become a thread loaded for stepping.
+        Returns ("run", word) | ("idle", None) | ("err", msg)."""
+        toks = line.split()
+        main = []
+        i = 0
+        while i < len(toks):
+            t = toks[i]
+            if t == ":":
+                if i + 1 >= len(toks):
+                    return ("err", ": needs a name")
+                name = toks[i + 1]; i += 2
+                body = []
+                while i < len(toks) and toks[i] != ";":
+                    err = self._compile_token(toks[i], body)
+                    if err: return ("err", err)
+                    i += 1
+                if i >= len(toks):
+                    return ("err", "%s : missing ;" % name)
+                i += 1                       # consume ';'
+                body.append(self.EXIT)
+                self.define(Word(name, body=body, kind="colon"))
+                self.log("✓ defined  %s" % name)
+            else:
+                err = self._compile_token(t, main)
+                if err:
+                    return ("err", err)
+                i += 1
+        if main:
+            main.append(self.EXIT)
+            w = Word("(input)", body=main, kind="colon")
+            self.load(w)
+            return ("run", w)
+        return ("idle", None)
+
+    # ---- the inner interpreter (one cell per step) ----------------------
+    def load(self, word):
+        self.frame = (word, 0)
+        self.rstack = []
+        self.halted = False
+        self.error = None
+        self.steps = 0
+        self.pulse = set()
+
+    def step(self):
+        if self.halted or self.frame is None:
+            return
+        word, ip = self.frame
+        self.pulse = set()
+        if ip >= len(word.body):                 # ran off the end -> behave like EXIT
+            cell = self.EXIT
+        else:
+            cell = word.body[ip]
+
+        if cell is self.LIT:
+            val = word.body[ip + 1]
+            self.dstack.append(val)
+            self.frame = (word, ip + 2)
+            self.pulse = {"stack"}
+        elif cell.kind == "exit":
+            if self.rstack:
+                self.frame = self.rstack.pop()
+                self.pulse = {"hop"}
+            else:
+                self.halted = True
+                self.pulse = {"hop"}
+        elif cell.kind == "prim":
+            before = len(self.dstack), (self.dstack[-1] if self.dstack else None)
+            try:
+                cell.prim(self)
+            except ForthError as e:
+                self.error = str(e); self.halted = True
+                self.log("✗ %s  (in %s)" % (e, cell.name)); return
+            self.frame = (word, ip + 1)
+            after = len(self.dstack), (self.dstack[-1] if self.dstack else None)
+            if before != after:
+                self.pulse = {"stack"}
+        elif cell.kind == "colon":               # docol: hop into the definition
+            self.rstack.append((word, ip + 1))
+            self.frame = (cell, 0)
+            self.pulse = {"hop"}
+        self.steps += 1
+
+    def run(self, cap=200000):
+        n = 0
+        while not self.halted and n < cap:
+            self.step()
+            if self.error or self.quit:
+                break
+            n += 1
+
+
+# ==========================================================================
+# Headless self-test (no terminal needed).
+# ==========================================================================
+
+def selftest():
+    vm = VM()
+    checks = []
+
+    def run_line(line):
+        kind, w = vm.feed(line)
+        if kind == "run":
+            vm.run()
+        return kind
+
+    run_line("5 square .")
+    checks.append(("5 square .", vm.output[-1], "25"))
+
+    vm.output.clear()
+    run_line(": cube dup dup * * ;")
+    run_line("4 cube .")
+    checks.append(("4 cube .", vm.output[-1], "64"))
+
+    vm.output.clear()
+    run_line(": double 2 * ;")
+    run_line("3 4 + 5 * double .")
+    checks.append(("(3+4)*5 double .", vm.output[-1], "70"))
+
+    # Step trace through a hop, to prove the return stack behaves.
+    vm.output.clear()
+    vm.feed("9 square")
+    trace = []
+    while not vm.halted:
+        w, ip = vm.frame
+        cell = w.body[ip] if ip < len(w.body) else vm.EXIT
+        nm = "lit" if cell is vm.LIT else cell.name
+        trace.append("%s@%d:%s ds=%s rs=%d" % (w.name, ip, nm, vm.dstack, len(vm.rstack)))
+        vm.step()
+    checks.append(("9 square -> ds", str(vm.dstack), "[81]"))
+
+    ok = True
+    for label, got, want in checks:
+        good = (got == want)
+        ok = ok and good
+        print("  [%s] %-22s got=%-8s want=%s" % ("OK" if good else "XX", label, got, want))
+    print("\n  step trace for `9 square`:")
+    for t in trace:
+        print("    " + t)
+    print("\n%s" % ("ALL PASS" if ok else "FAILURES"))
+    return 0 if ok else 1
+
+
+# ==========================================================================
+# NativeVM — drive the real ./fr binary under ptrace and read its live state.
+# ==========================================================================
+#
+# We single-step machine instructions and stop at every `jmp *(%rax)` (opcode
+# FF 20) — the indirect-threaded dispatch that NEXT and EXECUTE perform. At that
+# instant %rax holds the CFA about to run, %rsi is the live Forth IP, and the
+# data / return stacks sit between %rsp..data_stack_top and %rbp..return_stack_top.
+# Memory is read straight out of /proc/<pid>/mem; the dictionary is walked from
+# the binary's `var_latest` so user-defined words decode too.
+
+import ctypes  # noqa: E402
+
+PTRACE_TRACEME = 0
+PTRACE_CONT = 7
+PTRACE_SINGLESTEP = 9
+PTRACE_GETREGS = 12
+PTRACE_SETOPTIONS = 0x4200
+PTRACE_O_EXITKILL = 0x00100000
+
+_REG_FIELDS = ("r15", "r14", "r13", "r12", "rbp", "rbx", "r11", "r10", "r9",
+               "r8", "rax", "rcx", "rdx", "rsi", "rdi", "orig_rax", "rip",
+               "cs", "eflags", "rsp", "ss", "fs_base", "gs_base",
+               "ds", "es", "fs", "gs")
+
+
+class user_regs_struct(ctypes.Structure):
+    _fields_ = [(n, ctypes.c_ulonglong) for n in _REG_FIELDS]
+
+
+def _parse_elf_symbols(path):
+    """Minimal ELF64 .symtab reader -> {name: value}."""
+    with open(path, "rb") as f:
+        data = f.read()
+    if data[:4] != b"\x7fELF" or data[4] != 2:
+        raise ValueError("not an ELF64 file")
+    e_shoff = struct.unpack_from("<Q", data, 0x28)[0]
+    e_shentsize = struct.unpack_from("<H", data, 0x3a)[0]
+    e_shnum = struct.unpack_from("<H", data, 0x3c)[0]
+    symtab = strtab = None
+    secs = []
+    for i in range(e_shnum):
+        off = e_shoff + i * e_shentsize
+        sh_type = struct.unpack_from("<I", data, off + 4)[0]
+        sh_offset = struct.unpack_from("<Q", data, off + 0x18)[0]
+        sh_size = struct.unpack_from("<Q", data, off + 0x20)[0]
+        sh_link = struct.unpack_from("<I", data, off + 0x28)[0]
+        sh_entsize = struct.unpack_from("<Q", data, off + 0x38)[0]
+        secs.append((sh_type, sh_offset, sh_size, sh_link, sh_entsize))
+        if sh_type == 2:                       # SHT_SYMTAB
+            symtab = (sh_offset, sh_size, sh_link, sh_entsize)
+    if not symtab:
+        raise ValueError("no symbol table (binary stripped?)")
+    sh_offset, sh_size, sh_link, sh_entsize = symtab
+    str_off = secs[sh_link][1]
+    syms = {}
+    for off in range(sh_offset, sh_offset + sh_size, sh_entsize or 24):
+        st_name = struct.unpack_from("<I", data, off)[0]
+        st_value = struct.unpack_from("<Q", data, off + 8)[0]
+        if st_name == 0:
+            continue
+        end = data.index(b"\x00", str_off + st_name)
+        name = data[str_off + st_name:end].decode("latin1")
+        syms[name] = st_value
+    return syms
+
+
+class NativeError(Exception):
+    pass
+
+
+class NativeVM:
+    """Mirrors the VM interface the UI needs, backed by a live ./fr process."""
+    native = True
+
+    def __init__(self, frpath):
+        self.frpath = frpath
+        self.libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        self.libc.ptrace.restype = ctypes.c_long
+        self.sym = _parse_elf_symbols(frpath)
+        for need in ("var_latest", "LIT", "EXIT", "QUIT", "docol"):
+            if need not in self.sym:
+                raise NativeError("missing symbol %s in %s" % (need, frpath))
+        self.docol = self.sym["docol"]
+        self.LIT_addr = self.sym["LIT"]
+        self.EXIT_addr = self.sym["EXIT"]
+        self.data_top = self.sym.get("data_stack_top",
+                                     self.sym.get("data_stack", 0) + 4096)
+        self.ret_top = self.sym.get("return_stack_top",
+                                    self.sym.get("return_stack", 0) + 4096)
+        # sentinels so the shared _cell_label `is` checks work
+        self.LIT = Word("lit", kind="lit")
+        self.EXIT = Word("exit", kind="exit")
+
+        # UI-facing state
+        self.dstack = []
+        self.rstack = []
+        self.words = []
+        self.output = []
+        self.frame = None
+        self.halted = True
+        self.error = None
+        self.quit = False
+        self.steps = 0
+        self.pulse = set()
+        self.state = "boot"        # boot | input | step | exited
+        self.exec_name = ""        # word currently dispatching (rax)
+        self.exitcode = None
+
+        self._prev_ds = []
+        self._prev_rs = 0
+        self._outbuf = b""
+        self.fed_pending = False
+        self._start_process()
+        self.log("native: tracing %s  (pid %d)" % (os.path.basename(frpath), self.pid))
+        self._run_to_input()
+
+    # ---- process plumbing ----------------------------------------------
+    def _ptrace(self, req, addr=0, data=0):
+        return self.libc.ptrace(req, self.pid, ctypes.c_void_p(addr), data)
+
+    def _start_process(self):
+        sin_r, sin_w = os.pipe()
+        sout_r, sout_w = os.pipe()
+        pid = os.fork()
+        if pid == 0:                           # ---- child ----
+            try:
+                self.libc.ptrace(PTRACE_TRACEME, 0, 0, 0)
+                os.dup2(sin_r, 0)
+                os.dup2(sout_w, 1)
+                os.dup2(sout_w, 2)
+                for fd in (sin_r, sin_w, sout_r, sout_w):
+                    try: os.close(fd)
+                    except OSError: pass
+                os.execv(self.frpath, [self.frpath])
+            except Exception:
+                os._exit(127)
+        # ---- parent ----
+        self.pid = pid
+        os.close(sin_r); os.close(sout_w)
+        self.stdin_w = sin_w
+        self.stdout_r = sout_r
+        os.set_blocking(self.stdout_r, False)
+        os.waitpid(self.pid, 0)                # initial execve stop
+        try:
+            self.libc.ptrace(PTRACE_SETOPTIONS, self.pid, 0, PTRACE_O_EXITKILL)
+        except Exception:
+            pass
+        self.memfd = os.open("/proc/%d/mem" % self.pid, os.O_RDONLY)
+
+    def _getregs(self):
+        regs = user_regs_struct()
+        self.libc.ptrace(PTRACE_GETREGS, self.pid, 0, ctypes.byref(regs))
+        return regs
+
+    def _machinestep(self):
+        self.libc.ptrace(PTRACE_SINGLESTEP, self.pid, 0, 0)
+        _, status = os.waitpid(self.pid, 0)
+        if os.WIFEXITED(status):
+            self.exitcode = os.WEXITSTATUS(status); return "exited"
+        if os.WIFSIGNALED(status):
+            self.exitcode = -os.WTERMSIG(status); return "exited"
+        return "stopped"
+
+    # ---- memory helpers -------------------------------------------------
+    def _read(self, addr, n):
+        try:
+            return os.pread(self.memfd, n, addr)
+        except OSError:
+            return b"\x00" * n
+
+    def _u64(self, addr):
+        b = self._read(addr, 8)
+        return struct.unpack("<Q", b)[0] if len(b) == 8 else 0
+
+    @staticmethod
+    def _i64(v):
+        return v - 2**64 if v >= 2**63 else v
+
+    def log(self, text):
+        self.output.append(text)
+
+    def _drain_output(self):
+        try:
+            data = os.read(self.stdout_r, 65536)
+        except (BlockingIOError, OSError):
+            data = b""
+        if data:
+            self._outbuf += data
+            while b"\n" in self._outbuf:
+                line, self._outbuf = self._outbuf.split(b"\n", 1)
+                self.output.append(line.decode("latin1"))
+
+    # ---- dictionary walk (rebuilt each snapshot) ------------------------
+    def _walk_dict(self):
+        cfa_kind = {}
+        names = []
+        thread_starts = [(self.sym["QUIT"] + 8, "(quit)")]
+        h = self._u64(self.sym["var_latest"])
+        seen = 0
+        while h and seen < 4096:
+            lenflags = self._read(h + 8, 1)[0]
+            ln = lenflags & 0x7f
+            nm = self._read(h + 9, ln).decode("latin1")
+            cfa = h + 9 + ln
+            kind = "colon" if self._u64(cfa) == self.docol else "prim"
+            cfa_kind[cfa] = (nm, kind)
+            names.append((nm, kind))
+            if kind == "colon":
+                thread_starts.append((cfa + 8, nm))
+            h = self._u64(h)
+            seen += 1
+        cfa_kind[self.LIT_addr] = ("lit", "lit")
+        cfa_kind[self.EXIT_addr] = ("exit", "exit")
+        if "BRANCH" in self.sym:
+            cfa_kind[self.sym["BRANCH"]] = ("branch", "prim")
+        if "INTERPRET" in self.sym:
+            cfa_kind[self.sym["INTERPRET"]] = ("(interp)", "prim")
+        if "cold_start" in self.sym:            # so the bottom return frame maps sanely
+            thread_starts.append((self.sym["cold_start"], "(top)"))
+        names.reverse()                         # show oldest-first
+        return cfa_kind, names, thread_starts
+
+    def _body_at(self, start, cfa_kind, cap=80):
+        """Decode a word's body from `start`, stopping at EXIT / a branch's
+        offset / the first cell that isn't valid threaded code — so we never
+        render raw memory past the end of a definition as garbage numbers."""
+        body, addrs = [], []
+        a = start
+        for _ in range(cap):
+            v = self._u64(a)
+            if v == self.LIT_addr:
+                body.append(self.LIT); addrs.append(a); a += 8
+                body.append(self._i64(self._u64(a))); addrs.append(a); a += 8
+                continue
+            if v == self.EXIT_addr:
+                body.append(self.EXIT); addrs.append(a); a += 8
+                break
+            if v in cfa_kind:
+                nm, kd = cfa_kind[v]
+                body.append(Word(nm, kind=kd)); addrs.append(a); a += 8
+                if nm == "branch":              # consumes an inline offset, then ends
+                    body.append(self._i64(self._u64(a))); addrs.append(a); a += 8
+                    break
+                continue
+            break                               # unknown cell -> end of body
+        return body, addrs
+
+    def _enclosing(self, p, thread_starts):
+        best = None
+        for start, nm in thread_starts:
+            if start <= p and (best is None or start > best[0]):
+                best = (start, nm)
+        if best is None:
+            return ("@%#x" % p, p)
+        return (best[1], best[0])
+
+    # ---- snapshot the machine into UI-facing state ----------------------
+    def _snapshot(self, regs):
+        self._drain_output()
+        if regs is None:                        # process gone
+            self.frame = None
+            return
+        cfa_kind, names, thread_starts = self._walk_dict()
+        self.words = [Word(nm, kind=kd) for nm, kd in names]
+
+        # data stack: top is at rsp
+        sp = regs.rsp
+        n = max(0, min((self.data_top - sp) // 8, 256))
+        vals = [self._i64(self._u64(sp + 8 * i)) for i in range(n)]
+        self.dstack = list(reversed(vals))      # top last (UI convention)
+
+        # return stack: newest at rbp
+        bp = regs.rbp
+        nr = max(0, min((self.ret_top - bp) // 8, 256))
+        frames = []
+        for i in range(nr):
+            ip = self._u64(bp + 8 * i)
+            nm, start = self._enclosing(ip, thread_starts)
+            frames.append((Word(nm), (ip - start) // 8))
+        self.rstack = list(reversed(frames))    # newest last
+
+        # the word currently dispatching = CFA in %rax
+        self.exec_name = cfa_kind.get(regs.rax, ("?",))[0]
+
+        # At a `jmp *(%rax)` boundary, lodsq has already advanced %rsi past the
+        # cell it dispatched, so the *active* cell (whose CFA is in %rax) sits at
+        # %rsi-8. Show the enclosing word's bounded body, highlighting that cell.
+        active_addr = regs.rsi - 8
+        tname, start = self._enclosing(active_addr, thread_starts)
+        body, addrs = self._body_at(start, cfa_kind)
+        try:
+            active = addrs.index(active_addr)
+        except ValueError:
+            active = max(0, min((active_addr - start) // 8, len(body) - 1))
+        self.frame = (Word(tname, body=body, kind="colon"), active)
+
+        # pulses
+        self.pulse = set()
+        if self.dstack != self._prev_ds:
+            self.pulse.add("stack")
+        if len(self.rstack) != self._prev_rs:
+            self.pulse.add("hop")
+        self._prev_ds = list(self.dstack)
+        self._prev_rs = len(self.rstack)
+
+    # ---- the stepping state machine ------------------------------------
+    def _advance(self):
+        """Run machine instructions until the next dispatch boundary, an input
+        read we must pause for, or process exit. Then snapshot."""
+        guard = 0
+        while True:
+            guard += 1
+            if guard > 2_000_000:
+                self.error = "step guard tripped"; self.halted = True
+                self._snapshot(self._getregs()); return
+            regs = self._getregs()
+            op = self._read(regs.rip, 2)
+            if op == b"\x0f\x05" and regs.rax == 0:        # read(2) syscall
+                if not self.fed_pending:
+                    # Paused for input: fr is blocked deep inside
+                    # code_INTERPRET -> _word -> _refill -> read, so %rsp here
+                    # carries transient call return-addresses and a saved %rsi.
+                    # Don't read the stacks from registers (that junk is not the
+                    # Forth stack); keep the last clean snapshot, just refresh
+                    # the dictionary + output. The true between-line data stack
+                    # IS the last clean one.
+                    self.state = "input"; self.halted = True
+                    self._pause_refresh()
+                    return
+                self.fed_pending = False                    # our input will satisfy it
+            st = self._machinestep()
+            if st == "exited":
+                self.state = "exited"; self.halted = True
+                self.exec_name = ""
+                self.log("process exited (code %s)" % self.exitcode)
+                self._snapshot(None); return
+            regs = self._getregs()
+            if self._read(regs.rip, 2) == b"\xff\x20":      # jmp *(%rax) = dispatch
+                self.state = "step"; self.halted = False
+                self.steps += 1
+                self._snapshot(regs); return
+
+    def _pause_refresh(self):
+        """At the input prompt: drain output and refresh the dictionary, but
+        leave dstack/rstack/frame as the last clean (dispatch-boundary) values."""
+        self._drain_output()
+        try:
+            _, names, _ = self._walk_dict()
+            self.words = [Word(nm, kind=kd) for nm, kd in names]
+        except Exception:
+            pass
+        self.exec_name = ""
+
+    def _run_to_input(self, cap=4096):
+        n = 0
+        while self.state not in ("input", "exited") and n < cap:
+            self._advance(); n += 1
+
+    # ---- UI-facing API --------------------------------------------------
+    def feed(self, line):
+        if self.state == "exited":
+            self.log("✗ process has exited — restart to continue")
+            return ("idle", None)
+        try:
+            os.write(self.stdin_w, (line + "\n").encode("latin1"))
+        except OSError as e:
+            self.log("✗ write to fr failed: %s" % e)
+            return ("idle", None)
+        self.fed_pending = True
+        self.halted = False
+        self._advance()                          # step to first dispatch of this line
+        if self.state == "input" or self.state == "exited":
+            return ("idle", None)
+        return ("run", None)
+
+    def step(self):
+        if self.halted or self.state in ("input", "exited"):
+            return
+        self._advance()
+
+    def run(self, cap=200000):
+        n = 0
+        while not self.halted and self.state == "step" and n < cap:
+            self._advance(); n += 1
+
+
+# ==========================================================================
+# Curses UI
+# ==========================================================================
+
+def hex_to_xterm256(h):
+    """Map #rrggbb to the nearest xterm-256 colour index."""
+    h = h.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    levels = [0, 95, 135, 175, 215, 255]
+
+    def nearest(v):
+        return min(range(6), key=lambda i: abs(levels[i] - v))
+    ri, gi, bi = nearest(r), nearest(g), nearest(b)
+    cube = 16 + 36 * ri + 6 * gi + bi
+    # also consider the grayscale ramp for near-gray colours
+    gray = round((r + g + b) / 3)
+    gidx = 232 + min(23, max(0, round((gray - 8) / 10)))
+    cr, cg, cb = levels[ri], levels[gi], levels[bi]
+    gv = 8 + 10 * (gidx - 232)
+    d_cube = (cr - r) ** 2 + (cg - g) ** 2 + (cb - b) ** 2
+    d_gray = (gv - r) ** 2 + (gv - g) ** 2 + (gv - b) ** 2
+    return cube if d_cube <= d_gray else gidx
+
+
+class UI:
+    def __init__(self, stdscr, vm):
+        self.scr = stdscr
+        self.vm = vm
+        self.native = getattr(vm, "native", False)
+        self.input = ""
+        self.mode = "edit"          # "edit" | "run"
+        self.auto = False
+        self.speed = 220            # ms per auto step
+        self.cur = 0                # blink phase
+        self._init_colors()
+        self.vm.log("ember ready.  type Forth below, e.g.  5 square .")
+        self.vm.log("define words with  : name ... ;   then step through them.")
+
+    def _init_colors(self):
+        curses.start_color()
+        try:
+            curses.use_default_colors()
+        except curses.error:
+            pass
+        self.cidx = {k: hex_to_xterm256(v) for k, v in PALETTE.items()}
+        self.bg = self.cidx["bg"]
+        self.pair = {}
+        order = ["text", "text_mid", "text_dim", "ip", "stack", "hop",
+                 "exec", "ok", "red", "frost", "border", "border_hi", "panel"]
+        for n, key in enumerate(order, start=1):
+            try:
+                curses.init_pair(n, self.cidx[key], self.bg)
+            except curses.error:
+                curses.init_pair(n, curses.COLOR_WHITE, -1)
+            self.pair[key] = curses.color_pair(n)
+        try:
+            self.scr.bkgd(" ", self.pair["text"])
+        except curses.error:
+            pass
+
+    def C(self, key, extra=0):
+        return self.pair.get(key, 0) | extra
+
+    # ---- safe drawing ---------------------------------------------------
+    def put(self, y, x, text, attr=0):
+        h, w = self.scr.getmaxyx()
+        if y < 0 or y >= h:
+            return
+        if x < 0:
+            text = text[-x:]; x = 0
+        if x >= w:
+            return
+        text = text[: w - x]
+        try:
+            self.scr.addstr(y, x, text, attr)
+        except curses.error:
+            pass
+
+    def box(self, y, x, h, w, title, tcolor="border", title_attr=None):
+        c = self.C("border")
+        self.put(y, x, "┌" + "─" * (w - 2) + "┐", c)
+        for r in range(1, h - 1):
+            self.put(y + r, x, "│", c)
+            self.put(y + r, x + w - 1, "│", c)
+        self.put(y + h - 1, x, "└" + "─" * (w - 2) + "┘", c)
+        if title:
+            label = "─ " + title + " "
+            self.put(y, x + 2, label, self.C(tcolor, title_attr or curses.A_BOLD))
+
+    # ---- the render -----------------------------------------------------
+    def draw(self):
+        self.scr.erase()
+        H, W = self.scr.getmaxyx()
+        if H < 20 or W < 76:
+            self.put(0, 0, "ember needs at least 76x20. Resize the terminal.",
+                     self.C("red"))
+            self.scr.refresh()
+            return
+
+        # title bar
+        self.put(0, 1, "ember", self.C("frost", curses.A_BOLD))
+        self.put(0, 7, "· forthright threaded-code explorer", self.C("text_dim"))
+        st = self.vm
+        rstate = ("HALTED" if st.halted else ("AUTO" if self.auto else "STEP")) \
+            if self.mode == "run" else "EDIT"
+        scol = "red" if st.error else ("ok" if st.halted else "exec")
+        self.put(0, W - len(rstate) - 2, rstate, self.C(scol, curses.A_BOLD))
+
+        right_w = 30
+        left_x = 1
+        left_w = W - right_w - 3
+        right_x = left_x + left_w + 1
+        top = 2
+        input_h = 3
+        bottom = H - input_h - 1            # row of status line
+        main_h = bottom - top
+
+        out_h = max(6, main_h // 3)
+        thread_h = main_h - out_h
+        self._draw_thread(top, left_x, thread_h, left_w)
+        self._draw_output(top + thread_h, left_x, out_h, left_w)
+
+        data_h = max(7, main_h * 2 // 5)
+        ret_h = max(5, (main_h - data_h) // 2)
+        dict_h = main_h - data_h - ret_h
+        self._draw_data(top, right_x, data_h, right_w)
+        self._draw_return(top + data_h, right_x, ret_h, right_w)
+        self._draw_dict(top + data_h + ret_h, right_x, dict_h, right_w)
+
+        self._draw_input(bottom - input_h + 1, left_x, input_h, W - 2)
+        self._draw_status(H - 1, W)
+        self.scr.refresh()
+
+    def _cell_label(self, body, idx):
+        cell = body[idx]
+        if cell is self.vm.LIT:
+            return "lit", "exec"
+        if isinstance(cell, int):
+            # a literal value (after LIT) or a raw data cell (e.g. branch offset)
+            after_lit = idx > 0 and body[idx - 1] is self.vm.LIT
+            return str(cell), ("stack" if after_lit else "text_dim")
+        kind = getattr(cell, "kind", "")
+        if kind == "exit":
+            return "exit", "hop"
+        if kind == "lit":
+            return "lit", "exec"
+        if kind == "colon":
+            return getattr(cell, "name", "?"), "frost"   # a hop target
+        return getattr(cell, "name", "?"), "text"
+
+    def _draw_thread(self, y, x, h, w):
+        vm = self.vm
+        word = vm.frame[0] if vm.frame else None
+        ip = vm.frame[1] if vm.frame else -1
+        cur_color = "ip" if self.native else "exec"
+        if self.native and getattr(vm, "exec_name", ""):
+            title = "IP in %s  ▶ %s" % (word.name if word else "?", vm.exec_name)
+        else:
+            title = "THREAD: %s" % (word.name if word else "(none)")
+        self.box(y, x, h, w, title, "ip")
+        if not word:
+            self.put(y + 1, x + 2, "enter a line below to load a thread",
+                     self.C("text_dim"))
+            return
+        body = word.body
+        rows = h - 2
+        # scroll so ip stays visible
+        start = 0
+        if len(body) > rows:
+            start = max(0, min(ip - rows // 2, len(body) - rows))
+        for r in range(rows):
+            idx = start + r
+            if idx >= len(body):
+                break
+            label, col = self._cell_label(body, idx)
+            ry = y + 1 + r
+            current = (idx == ip and not vm.halted)
+            executed = idx < ip
+            addr = "%2d" % idx
+            if current:
+                mark = "▸" if (self.cur % 2 == 0 or not self.auto) else " "
+                attr = self.C(cur_color, curses.A_BOLD | curses.A_REVERSE)
+                self.put(ry, x + 1, mark, self.C(cur_color, curses.A_BOLD))
+                self.put(ry, x + 3, addr, self.C(cur_color))
+                self.put(ry, x + 6, " " + label.ljust(w - 9), attr)
+            else:
+                acol = "text_dim" if executed else col
+                aattr = curses.A_DIM if executed else 0
+                self.put(ry, x + 3, addr, self.C("text_dim"))
+                self.put(ry, x + 6, " " + label, self.C(acol, aattr))
+
+    def _draw_data(self, y, x, h, w):
+        vm = self.vm
+        pulse = "stack" in vm.pulse
+        self.box(y, x, h, w, "DATA  (%d)" % len(vm.dstack), "stack")
+        rows = h - 2
+        ds = vm.dstack
+        shown = ds[-rows:] if len(ds) > rows else ds
+        # top of stack at the top of the panel
+        for r, val in enumerate(reversed(shown)):
+            ry = y + 1 + r
+            is_top = (r == 0)
+            if is_top:
+                attr = self.C("stack", curses.A_BOLD | (curses.A_REVERSE if pulse else 0))
+                self.put(ry, x + 2, ("%-*s top" % (w - 8, str(val))), attr)
+            else:
+                self.put(ry, x + 2, str(val), self.C("text_mid"))
+        if not ds:
+            self.put(y + 1, x + 2, "(empty)", self.C("text_dim"))
+
+    def _draw_return(self, y, x, h, w):
+        vm = self.vm
+        pulse = "hop" in vm.pulse
+        self.box(y, x, h, w, "RETURN (%d)" % len(vm.rstack), "hop")
+        rows = h - 2
+        frames = vm.rstack[-rows:]
+        for r, (wd, ip) in enumerate(reversed(frames)):
+            attr = self.C("hop", curses.A_BOLD if (pulse and r == 0) else 0)
+            self.put(y + 1 + r, x + 2, "%s @%d" % (wd.name, ip), attr)
+        if not vm.rstack:
+            self.put(y + 1, x + 2, "(empty)", self.C("text_dim"))
+
+    def _draw_dict(self, y, x, h, w):
+        vm = self.vm
+        self.box(y, x, h, w, "DICTIONARY", "frost")
+        names = []
+        for wd in vm.words:
+            if wd.kind == "colon":
+                names.append((wd.name, "frost"))
+            else:
+                names.append((wd.name, "text_dim"))
+        # pack names into rows
+        rows = h - 2
+        line = ""
+        ry = y + 1
+        col_attr = []
+        # simple flow layout
+        cx = x + 2
+        maxx = x + w - 1
+        for nm, col in names:
+            if cx + len(nm) + 1 > maxx:
+                ry += 1; cx = x + 2
+                if ry >= y + 1 + rows:
+                    break
+            self.put(ry, cx, nm, self.C(col))
+            cx += len(nm) + 1
+
+    def _draw_output(self, y, x, h, w):
+        self.box(y, x, h, w, "OUTPUT", "ok")
+        rows = h - 2
+        lines = self.vm.output[-rows:]
+        for r, ln in enumerate(lines):
+            col = "red" if ln.startswith("✗") else (
+                "ok" if ln.startswith("✓") else "text_mid")
+            self.put(y + 1 + r, x + 2, ln[: w - 4], self.C(col))
+
+    def _draw_input(self, y, x, h, w):
+        self.box(y, x, h, w, "input", "exec" if self.mode == "edit" else "border")
+        prompt = "ok> " if self.mode == "edit" else "... "
+        self.put(y + 1, x + 2, prompt, self.C("ok", curses.A_BOLD))
+        text = self.input
+        self.put(y + 1, x + 6, text, self.C("text"))
+        if self.mode == "edit":
+            cur = "█" if self.cur % 2 == 0 else " "
+            self.put(y + 1, x + 6 + len(text), cur, self.C("ip", curses.A_BOLD))
+
+    def _draw_status(self, y, W):
+        if self.mode == "edit":
+            keys = "  Enter run/define   bye quit   Esc/^D exit   "
+        else:
+            keys = "  s step   a auto(%dms)   r run   n new   q quit   " % self.speed
+        self.put(y, 0, keys.ljust(48), self.C("text_dim"))
+        # legend
+        lx = max(48, W - 40)
+        for label, col in [("ip", "ip"), ("stack", "stack"),
+                           ("hop", "hop"), ("exec", "exec")]:
+            self.put(y, lx, "●", self.C(col, curses.A_BOLD))
+            self.put(y, lx + 1, label + " ", self.C("text_dim"))
+            lx += len(label) + 3
+
+    # ---- input handling -------------------------------------------------
+    def submit(self):
+        line = self.input.strip()
+        self.input = ""
+        if not line:
+            return
+        self.vm.log("ok> " + line)
+        kind, w = self.vm.feed(line)
+        if kind == "run":
+            self.mode = "run"
+            self.auto = False
+        elif kind == "err":
+            self.vm.log("✗ " + w)
+
+    def finish_run(self):
+        self.vm.run()                      # complete anything left
+        self.mode = "edit"
+        self.auto = False
+        self.vm.frame = None
+        self.vm.halted = True
+
+    def handle_key(self, ch):
+        if ch in (curses.KEY_RESIZE,):
+            return
+        if ch == 4:                          # Ctrl-D quits anywhere
+            self.vm.quit = True
+            return
+        if self.mode == "edit":
+            if ch in (curses.KEY_ENTER, 10, 13):
+                self.submit()
+            elif ch in (curses.KEY_BACKSPACE, 127, 8):
+                self.input = self.input[:-1]
+            elif ch == 27:                  # Esc: clear the line, or quit if empty
+                if self.input:
+                    self.input = ""
+                else:
+                    self.vm.quit = True
+            elif 32 <= ch < 127:
+                self.input += chr(ch)
+        else:  # run mode
+            if ch in (ord("s"), ord(" "), curses.KEY_RIGHT):
+                if not self.vm.halted:
+                    self.vm.step()
+            elif ch == ord("a"):
+                self.auto = not self.auto
+            elif ch == ord("r"):
+                self.vm.run()
+            elif ch in (ord("n"), 27, curses.KEY_ENTER, 10, 13):
+                self.finish_run()
+            elif ch == ord("q"):
+                self.vm.quit = True
+            elif ch in (ord("+"), ord("=")):
+                self.speed = max(40, self.speed - 40)
+            elif ch in (ord("-"), ord("_")):
+                self.speed = min(1000, self.speed + 40)
+
+    def loop(self):
+        while True:
+            self.draw()
+            if self.vm.quit:
+                return
+            if self.mode == "run" and self.auto and not self.vm.halted:
+                self.scr.timeout(self.speed)
+            else:
+                self.scr.timeout(400 if self.mode == "edit" else -1)
+            ch = self.scr.getch()
+            self.cur += 1
+            if ch == -1:                    # timeout tick
+                if self.mode == "run" and self.auto and not self.vm.halted:
+                    self.vm.step()
+                continue
+            self.handle_key(ch)
+
+
+def fr_path():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "fr")
+
+
+def native_selftest():
+    frpath = fr_path()
+    if not os.path.exists(frpath):
+        print("no ./fr binary — run ./build.sh first"); return 1
+    vm = NativeVM(frpath)
+    print("booted: state=%s pid=%d" % (vm.state, vm.pid))
+    vm.feed("5 square .")
+    seen, guard = [], 0
+    while not vm.halted and guard < 4000:
+        seen.append((vm.exec_name, list(vm.dstack)))
+        vm.step(); guard += 1
+    print("dispatched:", " ".join(s[0] for s in seen if s[0])[:200])
+    saw_25_with_5 = any(ds == [5] for _, ds in seen) and any(ds == [25] for _, ds in seen)
+    print("saw stack 5 then 25:", saw_25_with_5)
+    print("output:", vm.output[-4:])
+    vm.feed(": cube dup dup * * ;"); vm.run()
+    vm.feed("4 cube ."); vm.run()
+    print("after cube:", vm.output[-3:])
+    dict_names = [w.name for w in vm.words]
+    print("dict has cube:", "cube" in dict_names)
+    ok = (any(o == "25" for o in vm.output) and any(o == "64" for o in vm.output)
+          and "cube" in dict_names and saw_25_with_5)
+    print("\nNATIVE %s" % ("PASS" if ok else "FAIL"))
+    return 0 if ok else 1
+
+
+def run_ui(stdscr, make_vm):
+    curses.curs_set(0)
+    ui = UI(stdscr, make_vm())
+    ui.loop()
+
+
+def main():
+    if "--selftest" in sys.argv:
+        sys.exit(selftest())
+    if "--native-selftest" in sys.argv:
+        sys.exit(native_selftest())
+
+    frpath = fr_path()
+    want_native = ("--python" not in sys.argv and os.path.exists(frpath)
+                   and sys.platform.startswith("linux"))
+
+    def make_vm():
+        if want_native:
+            try:
+                return NativeVM(frpath)
+            except Exception as e:
+                v = VM(); v.log("native unavailable (%s) — using Python model" % e)
+                return v
+        return VM()
+
+    try:
+        curses.wrapper(lambda s: run_ui(s, make_vm))
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()
