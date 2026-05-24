@@ -96,7 +96,8 @@ assembly is a throwaway bootstrap.
     current word's body with the live cell highlit), and reads the data stack with `peekdata`.
     So the Python `ember` is now capability-redundant; what it still has is *polish*, not power:
   - **Polish toward the Python look.** Nord 256-colour palette, a dictionary panel, a live
-    edit line (type/define words in-TUI), buffered redraws (one `write` per frame, not per byte).
+    edit line (type/define words in-TUI). (Flicker is already handled — `atclr` redraws in
+    place; coalescing the per-byte writes into one `type`/frame is an optional perf tweak.)
   - **Buffer redraws.** `term.fr` emits one `write(2)` per byte; a frame is many tiny
     syscalls (flicker). Render into a string buffer and `type` it once. Wants `s"`-style
     string building (or just a scratch buffer + `c!` cursor) — a good prelude addition.

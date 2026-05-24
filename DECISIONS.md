@@ -101,9 +101,12 @@ is happy to keep signals (Ctrl-C) and output post-processing; clearing two bits 
 one `c_lflag` cell is also far simpler than zeroing the whole struct + setting
 VMIN/VTIME. It reads/writes the 8-byte cell at offset 12 (which spans `c_lflag` +
 `c_line` + a few `c_cc` bytes) and only flips bits in the low 32, so the rest round-
-trips untouched. **Output is one `write(2)` per byte** (every `emit`): correct but
-flickery — buffering a redraw into a single `type` is a deliberate later step
-(ROADMAP). **What's tested:** `test.sh` checks the ANSI escapes through a pipe; raw
+trips untouched. **Output is one `write(2)` per byte** (every `emit`). The TUIs stay
+flicker-free not by buffering but by **redrawing in place**: `clear` once, then `atclr`
+(position + erase-to-end-of-line) each row and overwrite it, so the screen never blanks
+mid-frame. Coalescing the per-byte writes into one `type` per frame is a separate,
+optional syscall-count optimization (ROADMAP). **What's tested:** `test.sh` checks the
+ANSI escapes through a pipe; raw
 mode is validated once under a pty (a byte with no newline echoes immediately and
 exactly once → `ICANON` and `ECHO` are both off), since `ioctl` needs a real tty.
 

@@ -135,19 +135,19 @@ variable ci
   edone @ if  2 sgr .done reset  else  .stepk  space space .runk  then
   space space  .quitk ;
 
-: draw ( -- )                     \ one full frame (clear + repaint)
-  clear
-  1 2 at  6 fg bold  .ember  [char] : emit  space  ecfa @ .cfaname  reset
-          space space  [char] # emit  estepn @ .n
-  3 2 at  2 sgr .call reset    3 9 at  draw-call
-  5 2 at  2 sgr .code reset    5 9 at  draw-thread
-  7 2 at  2 sgr .data reset    7 9 at  .s
-  9 2 at  draw-status ;
+: draw ( -- )                     \ repaint in place (atclr clears each row's tail — no
+                                  \ full-screen wipe, so no flicker; see `clear` once below)
+  1 2 atclr  6 fg bold  .ember  [char] : emit  space  ecfa @ .cfaname  reset
+             space space  [char] # emit  estepn @ .n
+  3 2 atclr  2 sgr .call reset    3 9 at  draw-call
+  5 2 atclr  2 sgr .code reset    5 9 at  draw-thread
+  7 2 atclr  2 sgr .data reset    7 9 at  .s
+  9 2 atclr  draw-status ;
 
 \ --- the event loop ----------------------------------------------------------
 : ember ( cfa -- )                \ usage:  <args> ' <word> ember
   einit
-  raw-on  hide-cursor
+  raw-on  hide-cursor  clear      \ clear once; `draw` then overwrites in place
   begin
     draw
     key                                            ( c )

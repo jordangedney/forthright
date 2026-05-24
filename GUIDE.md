@@ -130,7 +130,7 @@ after them (`\ note`, `( note )`) — they are parsed as words.
 
 | group | words |
 |---|---|
-| ANSI output | `clear` wipe+home · `home` · `at (row col -)` position cursor (1-based) · `sgr (n-)` raw SGR code · `fg (n-)`/`bg (n-)` colour (0–7) · `bold` · `reset` · `hide-cursor`/`show-cursor` |
+| ANSI output | `clear` wipe+home · `home` · `at (row col -)` position cursor (1-based) · `cleol` erase to end-of-line · `atclr (row col -)` `at`+`cleol` (flicker-free in-place redraw) · `sgr (n-)` raw SGR code · `fg (n-)`/`bg (n-)` colour (0–7) · `bold` · `reset` · `hide-cursor`/`show-cursor` |
 | raw input | `raw-on`/`raw-off` enter/leave cbreak (clear `ICANON|ECHO` via ioctl) · `term-size (- rows cols)` · pair with prelude's `key (-c)` |
 | compose | `paint (row col colour -)` = `at` + `fg` |
 

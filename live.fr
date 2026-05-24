@@ -113,14 +113,13 @@ variable lquit
 : .keys  ( -- ) [char] s emit [char] p emit [char] a emit [char] c emit [char] e emit
                 [char] = emit [char] s emit [char] t emit [char] e emit [char] p emit space space
                 [char] q emit [char] = emit [char] q emit [char] u emit [char] i emit [char] t emit ;
-: draw-live ( -- )
-  clear
-  1 2 at  6 fg bold  .live  reset  space space [char] # emit  lsteps @ .n
-          space space  2 sgr .real reset
-  3 2 at  2 sgr .call reset  3 9 at  draw-call
-  5 2 at  2 sgr .code reset  5 9 at  alive @ if  draw-code  then
-  7 2 at  2 sgr .data reset  7 9 at  alive @ if  .lstack  else  2 sgr .ended reset  then
-  9 2 at  .keys ;
+: draw-live ( -- )                \ repaint in place — no full-screen wipe, no flicker
+  1 2 atclr  6 fg bold  .live  reset  space space [char] # emit  lsteps @ .n
+             space space  2 sgr .real reset
+  3 2 atclr  2 sgr .call reset  3 9 at  draw-call
+  5 2 atclr  2 sgr .code reset  5 9 at  alive @ if  draw-code  then
+  7 2 atclr  2 sgr .data reset  7 9 at  alive @ if  .lstack  else  2 sgr .ended reset  then
+  9 2 atclr  .keys ;
 : live ( n cfa -- )                  \ usage:  <args> ' <word> live
   fork dup 0= if
     drop  traceme  getpid SIGSTOP kill  execute  bye
@@ -129,7 +128,7 @@ variable lquit
     -1 alive !  0 lsteps !  0 lcur !  0 lcn !  0 lquit !
     pwait drop
     alive @ if  l-step  then          \ advance to the first dispatch boundary
-    raw-on  hide-cursor
+    raw-on  hide-cursor  clear        \ clear once; draw-live then overwrites in place
     begin
       draw-live
       key                                                    ( c )

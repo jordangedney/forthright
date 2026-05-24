@@ -8,9 +8,10 @@
 \ and `trace` (prelude), this is everything the introspection + I/O sides of an
 \ fr-native ember need; what's left is the TUI layout/loop itself.
 \
-\ NOTE: every escape is emitted byte-by-byte through `emit`/`u.`, i.e. one write(2)
-\ per byte. Correct but flickery; a redraw should buffer into a string and `type`
-\ it in one syscall. That buffering is a deliberate later optimization (see ROADMAP).
+\ NOTE: output is one write(2) per byte (every `emit`). The TUIs avoid flicker not by
+\ buffering but by redrawing *in place* — `clear` once, then `atclr` each row (erase to
+\ end-of-line and overwrite), so the screen never blanks. Coalescing the per-byte writes
+\ into one `type` per frame is a separate, optional syscall-count optimization (ROADMAP).
 
 \ --- ANSI escape sequences ---------------------------------------------------
 \ CSI = ESC '[' . All sequences are ESC '[' <params> <final-byte>.
@@ -21,6 +22,9 @@
 : home  ( -- )  csi [char] H emit ;                                   \ cursor to 1,1
 : at    ( row col -- )                  \ position the cursor (1-based row, col)
   csi swap u. [char] ; emit u. [char] H emit ;
+: cleol ( -- )  csi [char] K emit ;     \ erase from the cursor to end of line
+: atclr ( row col -- )  at cleol ;      \ position, then clear that row's tail (flicker-free
+                                        \ redraw: `clear` once, then overwrite rows in place)
 
 \ SGR (Select Graphic Rendition): colours and styles. 0=reset, 1=bold,
 \ 30..37 = foreground, 40..47 = background, +60 for the bright variants.
