@@ -1,6 +1,12 @@
 \ ember.fr — the self-hosted ember: an interactive, visual single-stepper for fr,
-\ written in fr. Launch it with the `ember-fr` script, which gives fr a real tty
-\ (raw-mode key input needs one — a pipe won't do):
+\ written in fr. Run it with no Python at all — just give fr the source files and
+\ type a stepping command at the prompt (raw-mode key input needs a real tty, which
+\ a terminal provides):
+\
+\     ./fr prelude.fr term.fr ember.fr        then type:  5 ' square ember
+\
+\ The `ember-fr` script is a convenience/test wrapper around exactly that (it adds a
+\ pty so keystrokes can be scripted, and pre-types the command):
 \
 \     ./ember-fr "5 ' square ember"      \ step `square` with 5 on the stack
 \     ./ember-fr --selftest              \ headless pty check
@@ -12,7 +18,11 @@
 \ the loop that ties them together.
 \
 \   keys :  space / s = step one cell      q / Esc = quit
-\   scope:  straight-line words + literals (like `trace`); it stops at branches.
+\   scope:  follows control flow — if/else/then and begin/until/while/repeat all
+\           step (0branch pops the live flag; branch moves the cursor). Watching a
+\           comparison's flag steer a 0branch is the whole point. (The thread panel
+\           still decodes linearly like `see`, so on a backward jump the cursor
+\           hops back up; cells the cursor has passed are shown faint.)
 \
 \ What stays in the Python `ember` (out of fr's reach): the ptrace backend that
 \ single-steps the *real* machine instructions, and the full multi-panel view. See
@@ -28,20 +38,23 @@ variable equit       \ -1 once the user has asked to quit
 variable estepn      \ how many cells we've executed so far
 
 \ --- the stepper -------------------------------------------------------------
-\ estep runs the one cell at ebp on the live data stack and advances ebp, exactly
-\ as `trace` does: literals are pushed, words are `execute`d. It refuses to step a
-\ branch or EXIT (it sets edone), since those can't be single-stepped here.
+\ estep runs the one cell at ebp on the live data stack and advances ebp. It
+\ *follows control flow*, mirroring the kernel's inner interpreter by moving ebp
+\ (it can't `execute` a branch — that would clobber estep's own IP):
+\   EXIT     -> done.
+\   LIT n    -> push n, skip the inline value.
+\   BRANCH   -> ebp += inline offset (relative to the offset cell, as in fr.s).
+\   0BRANCH  -> pop the live flag; jump if it's 0, else fall through (cf. ZBRANCH).
+\   anything else -> `execute` it (a primitive or colon word), then step one cell.
 : estep ( -- )
-  ebp @ @                              ( cell )
-  dup trace-end? if  drop  -1 edone !  exit  then
-  dup 'lit = if
-    drop  ebp @ 8 + @                  \ push the inline literal
-    ebp @ 16 + ebp !
-  else
-    execute                            \ run the word at this CFA
-    ebp @ 8 + ebp !
-  then
-  estepn @ 1+ estepn ! ;
+  ebp @ @                                                    ( cell )
+  dup 'exit    = if  drop  -1 edone !                                       exit  then
+  dup 'lit     = if  drop  ebp @ 8 + @         ebp @ 16 + ebp !  estepn @ 1+ estepn !  exit  then
+  dup 'branch  = if  drop  ebp @ 8 + dup @ +   ebp !            estepn @ 1+ estepn !  exit  then
+  dup '0branch = if  drop                          \ the flag is live on the data stack
+    0= if  ebp @ 8 + dup @ +  ebp !  else  ebp @ 16 + ebp !  then
+    estepn @ 1+ estepn !                                                    exit  then
+  execute  ebp @ 8 + ebp !  estepn @ 1+ estepn ! ;
 
 \ --- short text labels (fr has no string literals, so we spell them) ---------
 : .ember ( -- ) [char] e emit [char] m emit [char] b emit [char] e emit [char] r emit ;

@@ -15,33 +15,29 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 LIB  = ("prelude.fr", "term.fr", "ember.fr")
 
 
-def library():
-    blob = b""
-    for name in LIB:
-        with open(os.path.join(HERE, name), "rb") as fh:
-            blob += fh.read()
-    return blob
-
-
 def spawn(cmd, rows=24, cols=80):
-    """Fork ./fr onto a pty, set it raw (no echo), preload the library + cmd."""
+    """Fork ./fr onto a pty and feed it the stepping command.
+
+    fr loads the library itself from its file arguments (`./fr prelude.fr term.fr
+    ember.fr`), so all this launcher does is provide a real tty (for `raw-on`) and
+    type the command. The same thing works with no Python at all, in a terminal:
+        ./fr prelude.fr term.fr ember.fr      (then type: 5 ' square ember)"""
     pid, fd = pty.fork()
-    if pid == 0:                                   # child becomes fr
+    if pid == 0:                                   # child becomes fr, loading the .fr files
         os.chdir(HERE)
-        os.execv("./fr", ["./fr"])
+        os.execv("./fr", ["./fr", *LIB])
         os._exit(127)
     try:                                           # make term-size meaningful
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     except OSError:
         pass
-    try:                                           # raw: the library load won't echo
+    try:                                           # raw: keystrokes pass straight through
         a = termios.tcgetattr(fd)
         a[3] &= ~(termios.ICANON | termios.ECHO)
         termios.tcsetattr(fd, termios.TCSANOW, a)
     except termios.error:
         pass
-    # one write: fr reads it all in a single refill (no token splits across reads)
-    os.write(fd, library() + (cmd + "\n").encode())
+    os.write(fd, (cmd + "\n").encode())            # fr reads this from stdin after the files
     return pid, fd
 
 

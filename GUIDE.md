@@ -26,8 +26,8 @@ and **forges** its own verified code.
 | `forge.fr` | generate→check→repair loop, written *in fr* (synthesizes verified words) |
 | `term.fr` | terminal control *in fr*: ANSI escapes + termios raw mode (the TUI substrate) |
 | `ember` | a Python/curses TUI that `ptrace`s the real `fr` and animates it |
-| `ember.fr` | the **self-hosted** ember: an interactive stepper *in fr* (run via `ember-fr`) |
-| `ember-fr` | a Python pty bridge that launches `ember.fr` (fr's `raw-on` needs a real tty) |
+| `ember.fr` | the **self-hosted** ember: an interactive stepper *in fr* (`./fr prelude.fr term.fr ember.fr`) |
+| `ember-fr` | a pty wrapper around that, for scripted testing + pre-typing the command |
 | `build.sh` | `as` + `ld` → `fr` |
 | `anvil-reference.py`, `forge-reference.py` | Python specs for the fr versions |
 
@@ -43,18 +43,22 @@ Naming map: **forthright** (project) · **fr** (the language) · **anvil** (veri
 echo '2 3 + .' | ./fr                   # -> 5   (RPN: push 2, push 3, add, print)
 ```
 
-`fr` reads Forth from stdin until EOF. The **kernel** alone knows only primitives;
-load `prelude.fr` for the full vocabulary by concatenating sources:
+`fr` reads Forth from its **file arguments first, then stdin** until EOF. So load the
+library by naming the files, or by concatenating into stdin — both work:
 
 ```sh
+./fr prelude.fr                          # load prelude, then read stdin (the REPL)
+echo '5 square .' | ./fr prelude.fr      # load prelude (file), run a command (stdin) -> 25
 ( cat prelude.fr; echo ': abs dup 0 < if negate then ;  -7 abs .' ) | ./fr   # -> 7
 ( cat prelude.fr anvil.fr; echo 'def sq ( n -- n ) dup * ;' ) | ./fr          # anvil: sq ok
 ( cat prelude.fr anvil.fr forge.fr; echo forge ) | ./fr                       # synthesize
-./ember                                  # the TUI (loads the prelude itself)
+./fr prelude.fr term.fr ember.fr         # the self-hosted TUI (then type: 5 ' square ember)
+./ember                                  # the Python ptrace TUI (loads the prelude itself)
 ```
 
 The layering rule: **prelude.fr** needs the kernel; **anvil.fr** needs the prelude;
-**forge.fr** needs both. Always `cat` them in that order before your program.
+**forge.fr** needs both; **term.fr**/**ember.fr** need the prelude. Name them (or `cat`
+them) in that order before your program.
 
 ---
 
@@ -80,8 +84,9 @@ after them (`\ note`, `( note )`) — they are parsed as words.
 - **Case-sensitive.** `dup` works; `DUP` is unknown.
 - **No string literals** (`s"`/`."`). Print text by emitting chars: `[char] A emit`.
 - **Division is signed** (`/ mod`); dividing by zero faults (SIGFPE).
-- **A token cannot span an input refill.** The input buffer is 64 KB, so whole
-  source files load fine, but this is why `( cat …)` is used rather than huge inputs.
+- **Source can come from files or stdin.** `./fr a.fr b.fr` loads those files in
+  order, then reads stdin; `cat a.fr b.fr | ./fr` still works too. Tokens and comments
+  may span any read boundary, so input can arrive in any chunk size.
 - The prelude must be loaded for `over rot 1+ negate cr …` (see word table).
 
 ### Word reference
@@ -281,14 +286,16 @@ done for `/` and `mod`).
 
 Built and working, all self-hosted where it counts: the kernel, the prelude (with a
 self-hosted disassembler `see` and tracer `trace`), the verifier `anvil`, the
-synthesis loop `forge`, the terminal layer `term.fr`, and now `ember.fr` — an
-interactive visual stepper written in fr (`./ember-fr "5 ' square ember"`). fr writes,
-verifies, forges, and now *watches* its own code. The Python `ember` keeps only what
-fr can't reach: the `ptrace` backend that single-steps the real machine instructions
-and its full multi-panel debugger view.
+synthesis loop `forge`, the terminal layer `term.fr`, and `ember.fr` — an interactive
+visual stepper written in fr that *follows control flow* (if/else and loops step). Run
+it with no Python: `./fr prelude.fr term.fr ember.fr`, then type `5 ' square ember`. fr
+writes, verifies, forges, and now *watches* its own code. The Python `ember` keeps only
+what fr can't reach: the `ptrace` backend that single-steps the real machine
+instructions and its full multi-panel debugger view.
 
 Open directions if continuing: more `forge` targets / a smarter generator; pushing
-`s=`/`find`/`number` into the prelude for an even smaller kernel; allowing control
-flow inside forged candidates (anvil already does branch analysis); or a robust
-`_word` that spans input refills. Commit history (`git log --oneline`) is the
+`s=`/`find`/`number` into the prelude for an even smaller kernel; allowing control flow
+inside forged candidates (anvil already does branch analysis); buffering ember's redraw
+into one `write` (it's byte-at-a-time now); or string literals (`s"`). Commit history
+(`git log --oneline`) is the
 step-by-step narrative.

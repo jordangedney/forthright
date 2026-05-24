@@ -42,9 +42,12 @@ holds two pieces:
   in fr (the fr-native analog of the Python `ember`). `<args> ' <word> ember` steps the
   word's threaded body cell by cell on the live data stack, drawing a `code`/`data` panel
   with the current cell highlighted (built on `term.fr` + `see`/`trace`). `space`/`s` step,
-  `q`/`Esc` quit. Straight-line + literals only (stops at branches, like `trace`). Launch
-  via `./ember-fr` (a Python pty bridge — fr's `raw-on` needs a real tty). The Python
-  `ember` keeps what fr can't do: the `ptrace` backend and the full multi-panel debugger.
+  `q`/`Esc` quit. It **follows control flow** — `0branch` pops the live flag, `branch` moves
+  the cursor — so `if/else` and `begin/until` loops step too. Run it with **no Python**:
+  `./fr prelude.fr term.fr ember.fr`, then type `5 ' square ember` (the kernel loads the
+  files from `argv`, then the tty is the REPL so `raw-on` works). `./ember-fr` is a pty
+  wrapper that pre-types the command + enables scripted testing. The Python `ember` keeps
+  what fr can't do: the `ptrace` backend and the full multi-panel debugger.
 - **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted), built on the
   prelude. `check{ … }`
   infers a phrase's `( in -- out )` by abstract stack simulation; `def name ( decl ) body ;`
@@ -81,7 +84,8 @@ echo '3 4 + 5 * .' | ./fr  # fr is a REPL: reads Forth from stdin until EOF
 ./ember --selftest         # headless check of the Python model  (the "test suite")
 ./ember --native-selftest  # headless check that drives ./fr under ptrace
 
-./ember-fr "5 ' square ember"   # the SELF-HOSTED stepper: ember.fr under a pty (real tty)
+./fr prelude.fr term.fr ember.fr     # the SELF-HOSTED stepper, no Python (type: 5 ' square ember)
+./ember-fr "5 ' square ember"   # same, via a pty wrapper that pre-types the command
 ./ember-fr --selftest           # headless pty check of ember.fr (scripts keystrokes)
 ./test.sh                       # core suite: kernel/prelude/anvil/forge/term + reference specs
 ./test-ember.sh                 # the explorer's own suite (ember model, ptrace, ember.fr/pty)
@@ -129,12 +133,16 @@ does `%rsi += *%rsi`). To add more control flow (`while/repeat`, `do/loop`), fol
 pattern. `ZBRANCH`/`BRANCH`/`LIT`/`EXIT` are headerless internal words (emitted by code, not
 typed), so they are not in the `FIND` chain.
 
-**Known limitation — a token cannot span an input refill.** `_word` returns a pointer into
-`inbuf`; if a token straddles the end of one `read` and the next, it splits (you'll see a
-bogus partial token like `rop`). `inbuf` is 64 KB so whole source files normally arrive in
-one read (pipe reads align to write/newline boundaries), but a `.fr` file larger than that,
-or a single token near a buffer edge, can still trip it. The robust fix (copy tokens into a
-holding buffer so they span refills) isn't done yet.
+**Input layer — robust across refills, and loads files from `argv`.** `_word` copies each
+token into `wordbuf` as it scans, and `_word`/`\`/`(` all call `_refill` mid-scan when `inbuf`
+runs out — so tokens and comments may span any number of refills, and stdin can be read in any
+chunk size (a pipe, a pty, a 1-byte dribble) without splitting. `_refill` reads from `var_infd`,
+which `_next_source` walks through the `argv` files (`argv[1..]`) and then stdin: so
+`./fr a.fr b.fr` loads those files in order and then drops to the stdin REPL (a missing file is
+skipped). `argc`/`argv` are captured in `_start` before `%rsp` becomes the data stack. This is
+what lets the self-hosted ember run with no launcher: `./fr prelude.fr term.fr ember.fr`.
+**Gotcha when scripting:** `_refill`'s read uses `%rsi` (saved/restored), and `syscall` clobbers
+`%rcx` — the mid-token refill in `_word` therefore `push`/`pop`s `%rcx` (the live token length).
 
 **Critical, non-obvious invariant — helper-routine calling convention:** because `%rsp` *is*
 the data stack, `_word`/`_find`/`_number`/`_refill` are reached with `call`/`ret` but **must

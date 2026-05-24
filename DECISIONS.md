@@ -56,11 +56,26 @@ Standard Forth convention. **Why it matters here:** flags are bitwise-combinable
 **Do not** add `.align` between name and codeword — it silently breaks every CFA
 computation. High bit of `len` is the IMMEDIATE flag (`0x80`).
 
-### Input buffer is 64 KB (a band-aid, not a fix)
-`_word` returns a pointer into `inbuf` and **can't carry a token across a `read`**.
-A token split at a buffer boundary becomes garbage. **Why 64 KB:** whole source
-files then arrive in one `read`, so it never happens in practice. The real fix
-(copy tokens into a holding buffer so they span refills) is deferred — see ROADMAP.
+### The input layer reassembles tokens across refills (no more buffer-boundary bug)
+`_word` copies each token into a `wordbuf` as it scans, and it (plus the comment words
+`\` and `(`) call `_refill` mid-scan when `inbuf` runs out. So a token or comment can
+span any number of reads — stdin may arrive in any chunk size (a pipe, a pty, a 1-byte
+dribble) without splitting. (`inbuf` stays 64 KB just to keep reads efficient.) **The
+sharp edge:** `_refill`'s read uses `%rsi` (the IP, saved/restored) and `syscall`
+clobbers `%rcx` — so the mid-token refill `push`/`pop`s `%rcx`, the live token length.
+This earlier *was* a band-aid (big buffer, hope tokens don't straddle); the copy makes
+it correct.
+
+### fr loads source files from argv, then reads stdin
+`./fr a.fr b.fr` loads those files in order and then drops to the stdin REPL.
+`_refill` reads from `var_infd`; on EOF, `_next_source` closes it and opens the next
+`argv` file (`O_RDONLY`), then finally stdin (once), then signals true EOF. `argc`/`argv`
+are grabbed in `_start` before `%rsp` is repurposed as the data stack; a missing file is
+skipped (open returns negative → try the next). **Why:** this is what lets the
+self-hosted ember run with **no launcher** — `./fr prelude.fr term.fr ember.fr` loads the
+library from disk and leaves fd 0 as the real tty, which `raw-on`/`key` need. It also
+retires the `cat a.fr b.fr | ./fr` idiom (though that still works). Capped at "files then
+stdin" deliberately — no `include`-from-source, no search path; just enough to bootstrap.
 
 ### Helper routines pass everything in registers
 `_word`/`_find`/`_number`/`_create`/`_refill` use `call`/`ret`, but `%rsp` *is* the
@@ -93,22 +108,27 @@ exactly once → `ICANON` and `ECHO` are both off), since `ioctl` needs a real t
 
 ### a self-hosted ember exists (`ember.fr`); the ptrace backend stays in Python
 `ember.fr` is now a real interactive stepper *in fr* — `see`/`trace` for the model,
-`key`/`raw-on` for input, `term.fr` for output. It is deliberately a *subset* of the
-Python `ember`: it steps a word's threaded body on the live data stack (straight-line
-+ literals, like `trace`), not the raw machine instructions. **What stays external:**
-the `NativeVM` ptrace backend (single-step the real fr, read `/proc/pid/mem`) — fr has
-no `ptrace`/`fork`/`waitpid` primitives, and that's a *host* debugging tool by nature,
-not part of the language's trust base.
+`key`/`raw-on` for input, `term.fr` for output. It steps a word's threaded body on the
+live data stack and **follows control flow** (`estep` reads a `0branch`'s flag off the
+stack and moves the cursor, mirroring the inner interpreter — it can't `execute` a
+branch without clobbering its own IP), so `if/else` and loops step. It is still a
+*subset* of the Python `ember`: it steps threaded cells, not raw machine instructions.
+**What stays external:** the `NativeVM` ptrace backend (single-step the real fr, read
+`/proc/pid/mem`) — fr has no `ptrace`/`fork`/`waitpid` primitives, and that's a *host*
+debugging tool by nature, not part of the language's trust base.
 
-### ember.fr is launched by a pty bridge (`ember-fr`), and `q` exits fr
+### ember.fr runs with no launcher; `ember-fr` is just a pty wrapper, and `q` exits fr
 `raw-on` does an `ioctl` on fd 0, which fails on a pipe — so `ember.fr` needs a real
-tty. **Why a pty launcher** (not e.g. teaching fr to read source files from argv): the
-pty bridge is ~80 lines of host-glue with no kernel cost, and parallels how the Python
-ember already drives fr; argv/file-loading is a worthwhile kernel feature but a much
-bigger change (a multi-source input layer) — deferred to ROADMAP. **Why `q` calls
-`bye`:** `ember-fr` is a dedicated single-shot launcher (like `htop`), so quitting the
-view quits fr, and the bridge sees EOF and exits cleanly. **Spelled-out labels** (`code`
-`data` `done` via per-char `emit`) are a stopgap until fr has string literals (`s"`).
+tty. Now that the kernel loads source from `argv`, the canonical way to run it needs
+**no Python**: `./fr prelude.fr term.fr ember.fr` loads the library from disk and leaves
+fd 0 as the terminal. (Earlier this decision deferred argv-loading and leaned on a pty
+launcher feeding the library through the pipe — which was *flaky*, ~15% of runs split a
+token at a pty-buffer boundary; argv-loading fixed both the launch and the flakiness.)
+`ember-fr` remains as a thin pty wrapper for **scripted testing** (`--selftest`) and the
+convenience of pre-typing the command. **Why `q` calls `bye`:** the stepper is a
+single-shot view (like `htop`), so quitting it quits fr and the wrapper sees a clean EOF.
+**Spelled-out labels** (`code` `data` `done` via per-char `emit`) are a stopgap until fr
+has string literals (`s"`).
 
 ### ember runs fr at native speed via a breakpoint, single-steps only for `s`
 ember bootstraps the prelude and runs `r` by setting an `int3` at the `read`

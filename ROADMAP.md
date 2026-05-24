@@ -20,9 +20,10 @@ below.
   something a human must read to trust the whole stack. The rule *"if a word can be
   written in fr, it goes in `prelude.fr`, not the kernel"* is the whole game. When
   tempted to add a primitive, ask whether it's truly irreducible.
-- **Keep the reference-spec pattern.** Each self-hosted tool has a Python spec
-  (`anvil-reference.py`, `forge-reference.py`); `ember.fr` is the spec for a future
-  self-hosted ember. Specs are how the fr versions stay honest. Keep them in sync.
+- **Keep the reference-spec pattern.** The self-hosted tools that began as Python
+  specs keep them (`anvil-reference.py`, `forge-reference.py`) as cross-checks. (`ember.fr`
+  has graduated from spec to a real, runnable stepper; the Python `ember` is its richer
+  ptrace-backed cousin, not its spec.) Specs are how the fr versions stay honest.
 - **Verification is the point, not the generator.** Whatever proposes code (a dumb
   search, an LLM), the guarantee comes from `anvil`. Never let the generator's
   output be trusted without the gate.
@@ -79,18 +80,19 @@ assembly is a throwaway bootstrap.
   (`,` for code), enough to re-emit the primitives. Then a Forth that compiles its
   own NEXT/docol/primitives — true self-hosting, where the `.s` file is a seed you
   could regenerate. Hard, beautiful, and the natural terminus of "everything in fr."
-- A generic **`syscall` primitive** — **DONE.** `syscall3` + `key` (prelude),
-  `term.fr` (ANSI + termios cbreak via `ioctl`), and **`ember.fr` — DONE:** an
-  interactive visual stepper written in fr (`./ember-fr "5 ' square ember"`), driven by
-  a small Python pty bridge (`ember-fr`, since `raw-on` needs a real tty). So the
-  self-hosted ember exists. What's left to grow it:
+- A generic **`syscall` primitive** — **DONE** (`syscall3` + `key`), and on top of it
+  `term.fr` (ANSI + termios cbreak via `ioctl`) and **`ember.fr` — DONE:** an interactive
+  visual stepper written in fr that **follows control flow** (if/else + loops), run with
+  no Python: `./fr prelude.fr term.fr ember.fr`. The kernel now **loads source from argv**
+  and reassembles tokens/comments across refills, so the launch needs no library-feeding.
+  What's left to grow ember:
   - **Buffer redraws.** `term.fr` emits one `write(2)` per byte; a frame is many tiny
     syscalls (flicker). Render into a string buffer and `type` it once. Wants `s"`-style
     string building (or just a scratch buffer + `c!` cursor) — a good prelude addition.
-  - **Step through branches.** `ember.fr`/`trace` stop at `if/begin/…`; a real stepper
-    would follow `BRANCH`/`ZBRANCH` by reading the flag off the live stack. Doable now.
   - **More panels.** Return stack (needs an `rp@`/`rp0` pair like `sp@`/`sp0`), dictionary
     list (walk `latest`), an editable input line (`key` + an edit buffer).
+  - **Run-to-end / autoplay.** A key that `estep`s until `edone` (with a small delay),
+    and breakpoints on a chosen cell.
 
 ## Cross-cutting: the corpus
 
@@ -113,7 +115,7 @@ That's the whole bet, and it's within reach from here.
 ## Small, well-scoped TODOs (grab one)
 
 - `def` should report unknown body words (mirror `check{`'s `?` path).         `anvil.fr`
-- Robust `_word`: let a token span an input refill (copy to a holding buffer).  `fr.s`
+- ~~Robust `_word`: span input refills~~ — **DONE** (copies to `wordbuf`; files load via argv).
 - `forge`: allow `if/else/then` in candidates (anvil already does branch analysis). `forge.fr`
 - `forge`: take the target effect + examples as input instead of hardcoding square. `forge.fr`
 - Push `s= find number` to the prelude; shrink the kernel.            `fr.s` / `prelude.fr`

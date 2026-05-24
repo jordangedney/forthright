@@ -121,19 +121,22 @@ word's body; `exit` pops back. The Python engine is a deliberate superset of fr
 walks a word's threaded body on the live data stack, one cell per keypress, with the
 current cell highlighted and a live `data` panel. It's built entirely on fr — `see`/
 `trace` for the model, `key`/`raw-on` (the kernel's `syscall3` → `ioctl`) for input,
-`term.fr` for ANSI output. A small Python pty bridge (`ember-fr`) launches it, because
-`raw-on` needs a real terminal.
+`term.fr` for ANSI output. It runs with **no Python at all**: the kernel loads the
+library from its file arguments, then the terminal is the REPL (so `raw-on` has a real
+tty). Type a stepping command at the prompt:
 
-    ./ember-fr "5 ' square ember"    # step `square` with 5 on the stack
-    ./ember-fr --selftest            # headless pty check
+    ./fr prelude.fr term.fr ember.fr      # then type:  5 ' square ember
 
 ```
  ember: square  #2          space/s = step one cell
  code   dup * ;             q / Esc = quit
- data   25                  (straight-line + literals, like trace)
+ data   25                  (follows if/else + loops)
 ```
 
-It steps straight-line definitions (it stops at branches, like `trace`); the Python
+It **follows control flow** — `0branch` pops the live flag and `branch` moves the
+cursor, so `if/else` and `begin/until` loops step too (watching a comparison's flag
+steer a `0branch` is the fun part). The `ember-fr` script is a convenience/test wrapper
+(it adds a pty so keystrokes can be scripted: `./ember-fr --selftest`). The Python
 `ember` keeps what fr can't reach — the `ptrace` backend over real machine
 instructions, and the full multi-panel debugger.
 
@@ -226,7 +229,11 @@ new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checki
       (≤3 args: read/write/ioctl), opening raw-tty I/O to fr.
 - [x] **term.fr** — terminal control *in fr*: ANSI escapes (`clear at fg bg`) and
       termios cbreak via `ioctl` (`raw-on`/`raw-off`, validated under a pty).
+- [x] **Robust input + file loading** (kernel) — `_word` reassembles tokens (and the
+      comment words refill) across reads, so input can arrive in any chunk size; and
+      `./fr a.fr b.fr` loads source files from `argv` before the stdin REPL.
 - [x] **ember.fr** — the **self-hosted ember**: an interactive visual stepper written
-      in fr (`./ember-fr "5 ' square ember"`). Steps a word's threaded body on the live
-      stack, one cell per keypress, current cell highlighted. fr now writes, verifies,
-      forges, *and watches* its own code — only the ptrace backend stays in Python.
+      in fr, run with no Python (`./fr prelude.fr term.fr ember.fr`). Steps a word's
+      threaded body on the live stack, current cell highlighted, and **follows control
+      flow** (if/else + loops). fr now writes, verifies, forges, *and watches* its own
+      code — only the ptrace backend stays in Python.

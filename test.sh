@@ -20,6 +20,8 @@ printf 'building... '
 if ./build.sh >/dev/null 2>&1; then printf 'ok\n\n'; else echo "BUILD FAILED"; exit 1; fi
 
 check "kernel: 2 3 + ."          "$(echo '2 3 + .' | ./fr)"                                       "5"
+check "kernel: file-arg load"    "$(echo '5 square .' | ./fr prelude.fr)"                          "25"
+check "kernel: multi file-arg"   "$(printf '7 12 1 paint bye\n' | ./fr prelude.fr term.fr)"        "[7;12H"
 check "prelude: 5 square ."      "$( ( cat prelude.fr; echo '5 square .' ) | ./fr )"               "25"
 check "control flow: -7 abs"     "$( ( cat prelude.fr; echo ': abs dup 0 < if negate then ; -7 abs .' ) | ./fr )" "7"
 check "see: disassemble square"  "$( ( cat prelude.fr; echo 'see square' ) | ./fr )"               "dup * ;"

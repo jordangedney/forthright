@@ -32,8 +32,12 @@
 	.global _start
 _start:
 	cld				# strings ascend: lodsq increments IP
+	mov (%rsp), %rax		# argc (at entry %rsp -> [argc][argv0][argv1]...)
+	mov %rax, var_argc
+	lea 8(%rsp), %rax		# &argv[0]
+	mov %rax, var_argv
 	mov $return_stack_top, %rbp
-	mov $data_stack_top, %rsp
+	mov $data_stack_top, %rsp	# (the original %rsp/argv is now discarded)
 	mov $cold_start, %rsi		# IP -> the cold-start thread (QUIT)
 	NEXT
 
@@ -622,7 +626,12 @@ code_BSLASH:
 .bslash_loop:
 	mov inbuf_pos, %rax
 	cmp inbuf_len, %rax
-	jae .bslash_done
+	jb .bslash_have
+	call _refill			# comment runs past this chunk: pull more
+	test %rax, %rax
+	jz .bslash_done			# EOF -> comment ends at end of input
+	jmp .bslash_loop
+.bslash_have:
 	movzbq inbuf(%rax), %rdx
 	incq inbuf_pos
 	cmp $10, %dl			# newline ends the comment
@@ -638,7 +647,12 @@ code_PAREN:
 .paren_loop:
 	mov inbuf_pos, %rax
 	cmp inbuf_len, %rax
-	jae .paren_done
+	jb .paren_have
+	call _refill			# comment runs past this chunk: pull more
+	test %rax, %rax
+	jz .paren_done			# EOF -> comment ends at end of input
+	jmp .paren_loop
+.paren_have:
 	movzbq inbuf(%rax), %rdx
 	incq inbuf_pos
 	cmp $41, %dl			# ')' ends the comment
@@ -803,34 +817,89 @@ _create:
 .create_done:
 	ret				# %r9 = address just past the name = the CFA
 
-# _refill — read a chunk of stdin into inbuf. On EOF, exit(0).
+# _refill — read a chunk from the current input source into inbuf. The source is
+# var_infd, which walks the argv files (argv[1..]) and then stdin (see _next_source).
+# Returns %rax = bytes read, or 0 once *every* source is exhausted. The caller
+# (_word, the comment words) treats 0 as the true end of input.
 _refill:
+.refill_again:
 	push %rsi			# save Forth IP (read uses %rsi as buf)
-	xor %rdi, %rdi			# fd = stdin
+	mov var_infd, %rdi		# fd of the current source
 	mov $inbuf, %rsi
 	mov $inbuf_size, %rdx
 	xor %rax, %rax			# sys_read
 	syscall
 	pop %rsi
 	test %rax, %rax
-	jle .refill_eof			# 0 = EOF, <0 = error
+	jg .refill_ok			# >0 bytes read
+	call _next_source		# EOF/error on this source -> move to the next
+	test %rax, %rax
+	jnz .refill_again		# a new source opened -> read it
+	xor %rax, %rax			# nothing left anywhere
+	mov %rax, inbuf_len
+	mov %rax, inbuf_pos
+	ret
+.refill_ok:
 	mov %rax, inbuf_len
 	movq $0, inbuf_pos
 	ret
-.refill_eof:
-	mov $60, %rax
-	xor %rdi, %rdi
-	syscall
 
-# _word — parse the next whitespace-delimited token.
-#   out: %rdi = pointer to token bytes (inside inbuf), %rcx = length (> 0)
-# Note: a token is assumed not to straddle a refill (fine for line input).
+# _next_source — close the current input (if it's a file) and open the next source:
+# the argv files in order (argv[1..argc-1]), then stdin once. Returns %rax = 1 if a
+# source is now open, 0 if all are exhausted. Preserves %rsi (the IP) across syscalls.
+# This is what makes `./fr a.fr b.fr` load files and then drop to the stdin REPL.
+_next_source:
+	push %rsi			# protect the Forth IP across close/open
+	mov var_infd, %rax
+	cmp $2, %rax			# close real files only (skip -1 / 0 / 1 / 2)
+	jle .ns_pick
+	mov %rax, %rdi
+	mov $3, %rax			# sys_close(fd)
+	syscall
+.ns_pick:
+	mov var_argi, %rax
+	cmp var_argc, %rax
+	jae .ns_stdin			# no argv entries left -> stdin
+	mov var_argv, %rdx
+	mov (%rdx,%rax,8), %rdi		# filename = argv[argi]
+	incq var_argi
+	mov $2, %rax			# sys_open(name, O_RDONLY, 0)
+	xor %rsi, %rsi			# flags = O_RDONLY (0)
+	xor %rdx, %rdx			# mode (ignored)
+	syscall				# %rax = fd or -errno
+	test %rax, %rax
+	js .ns_pick			# open failed: skip this file, try the next
+	mov %rax, var_infd
+	pop %rsi
+	mov $1, %rax
+	ret
+.ns_stdin:
+	mov var_stdin_used, %rax
+	test %rax, %rax
+	jnz .ns_none			# already consumed stdin -> truly done
+	movq $1, var_stdin_used
+	movq $0, var_infd		# fd 0 = stdin
+	pop %rsi
+	mov $1, %rax
+	ret
+.ns_none:
+	pop %rsi
+	xor %rax, %rax			# every source exhausted
+	ret
+
+# _word — parse the next whitespace-delimited token, copying it into `wordbuf`.
+#   out: %rdi = pointer to the token (in wordbuf), %rcx = length (> 0)
+# Copying means a token may straddle as many input refills as it likes — `inbuf`
+# can be read in any chunk size (a pipe, a pty, a short read) without splitting a
+# token. EOF while skipping whitespace is the normal end of input: exit(0).
 _word:
 .word_skip:
 	mov inbuf_pos, %rax
 	cmp inbuf_len, %rax
 	jb .word_have
 	call _refill
+	test %rax, %rax
+	jz .word_eof			# nothing left to read -> done
 	jmp .word_skip
 .word_have:
 	movzbq inbuf(%rax), %rdx
@@ -847,13 +916,18 @@ _word:
 	incq inbuf_pos
 	jmp .word_skip
 .word_start:
-	mov inbuf_pos, %rax
-	lea inbuf(%rax), %rdi		# token pointer
-	xor %rcx, %rcx			# length
+	xor %rcx, %rcx			# token length (also the wordbuf write index)
 .word_take:
 	mov inbuf_pos, %rax
 	cmp inbuf_len, %rax
-	jae .word_done
+	jb .word_char
+	push %rcx			# preserve the token length: syscall clobbers %rcx
+	call _refill			# ran out mid-token: pull the next chunk and continue
+	pop %rcx
+	test %rax, %rax
+	jz .word_done			# EOF -> the token ends here
+	jmp .word_take
+.word_char:
 	movzbq inbuf(%rax), %rdx
 	cmp $' ', %dl
 	je .word_done
@@ -863,11 +937,18 @@ _word:
 	je .word_done
 	cmp $13, %dl
 	je .word_done
+	mov %dl, wordbuf(%rcx)		# copy the byte into the holding buffer
 	incq inbuf_pos
 	inc %rcx
-	jmp .word_take
+	cmp $wordbuf_size, %rcx		# stop if the token is pathologically long
+	jb .word_take
 .word_done:
+	mov $wordbuf, %rdi		# token now lives in wordbuf (survives refills)
 	ret
+.word_eof:
+	mov $60, %rax			# input exhausted: exit(0)
+	xor %rdi, %rdi
+	syscall
 
 # _find — look up a token in the dictionary.
 #   in:  %rdi = token ptr, %rcx = length      (both preserved)
@@ -1024,6 +1105,11 @@ var_state:  .quad 0			# 0 = interpret, 1 = compile
 var_here:   .quad dict_space		# next free byte for new definitions
 inbuf_len:  .quad 0			# valid bytes currently in inbuf
 inbuf_pos:  .quad 0			# parse cursor into inbuf
+var_argc:   .quad 0			# argc, captured at _start
+var_argv:   .quad 0			# &argv[0], captured at _start
+var_argi:   .quad 1			# next argv index to open (argv[0] is the program)
+var_stdin_used: .quad 0			# 1 once stdin has been used as a source
+var_infd:   .quad -1			# current input fd; -1 = none open yet
 
 	.bss
 	.lcomm data_stack, 4096
@@ -1032,7 +1118,9 @@ inbuf_pos:  .quad 0			# parse cursor into inbuf
 	.equ   return_stack_top, return_stack + 4096
 	.lcomm numbuf, 32
 	.lcomm emitbuf, 8		# 1-byte scratch for `emit`
-	.equ   inbuf_size, 65536	# big enough that source files fit in one read;
-	.lcomm inbuf, inbuf_size	# a token still can't span a refill (a known limit)
+	.equ   inbuf_size, 65536	# stdin read buffer; any chunk size is fine now —
+	.lcomm inbuf, inbuf_size	#   _word reassembles tokens that span refills
+	.equ   wordbuf_size, 256	# holding buffer for one parsed token (copied out of inbuf)
+	.lcomm wordbuf, wordbuf_size
 	.equ   dict_size, 65536		# room for definitions created at runtime
 	.lcomm dict_space, dict_size
