@@ -38,6 +38,7 @@ variable cerr                     \ count of control-structure imbalances (missi
 variable rerr                     \ -1 if the return stack didn't balance
 variable rdep                     \ running return-stack depth (>r +1, r> -1)
 variable terr                     \ count of cell-kind (type) errors
+variable zerr                     \ count of division-by-literal-zero
 variable astk  320 cells allot    \ abstract cell KINDS, indexed by height (see ABASE below)
 here dup tbase ! tp !   8000 allot
 here dup nbase ! np !   8000 allot
@@ -102,7 +103,8 @@ variable ui                           \ .unknowns iterator
 \ astk[ABASE + h] is the kind of the cell at height h (h<0 = a consumed input). The
 \ height sim (hgt/lo) is untouched; this rides alongside it. Out-of-range is treated as
 \ unknown / no-op so a deep stack can never corrupt memory.
-0 constant K?   1 constant KN   2 constant KA   3 constant KF   \ unknown/number/address/flag
+0 constant K?   1 constant KN   2 constant KA   3 constant KF   4 constant KZ
+\ unknown / number / address / flag / literal-zero (a number we know is 0, for div-by-zero)
 64 constant ABASE
 variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2nd, 3rd)
 : inb ( idx -- idx f )  dup 0 >=  over 320 <  and ;
@@ -225,7 +227,8 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
 \ --- cell-kind transfer functions --------------------------------------------
 : bad-ty ( -- )  terr @ 1+ terr ! ;
 : knum   ( -- )  KN kset ;        : kflag ( -- )  KF kset ;
-: addr?  ( kind -- f )  KA = ;    : num?  ( kind -- f )  KN = ;    : flag? ( kind -- f )  KF = ;
+: addr?  ( kind -- f )  KA = ;    : flag? ( kind -- f )  KF = ;
+: num?   ( kind -- f )  dup KN = swap KZ = or ;    \ KZ (literal zero) is a number too
 : notaddr? ( kind -- f )  dup num? swap flag? or ;     \ KNOWN non-address (num or flag)
 : need-addr ( -- )  topk notaddr? if  bad-ty  then ;   \ top must be an address (or unknown)
 \ shufflers: save consumed kinds, apply (height + default K?), write the permuted kinds.
@@ -247,7 +250,9 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
 : bool-kind  ( -- kind )  topk flag? 2ndk flag? and if KF exit then  topk num? 2ndk num? and if KN else K? then ;
 : a-plus  ( -- )  topk addr? 2ndk addr? and if bad-ty then  plus-kind   2 1 apply  kset ;  \ addr+addr -> ty!
 : a-minus ( -- )  minus-kind  2 1 apply  kset ;                          \ addr-addr -> num, addr-num -> addr
-: a-mul   ( -- )  topk dup addr? swap flag? or  2ndk dup addr? swap flag? or  or if bad-ty then  2 1 apply knum ;
+: bad-arith ( -- )  topk dup addr? swap flag? or  2ndk dup addr? swap flag? or  or if bad-ty then ;
+: a-mul    ( -- )  bad-arith  2 1 apply knum ;
+: a-divmod ( -- )  topk KZ = if  zerr @ 1+ zerr !  then  bad-arith  2 1 apply knum ;  \ / mod : divisor on top
 : a-incr  ( -- )  incr-kind  1 1 apply  kset ;
 : a-bool  ( -- )  bool-kind  2 1 apply  kset ;                           \ and/or/xor
 : a-num1  ( -- )  topk num?            1 1 apply  if KN else K? then kset ;  \ 2* 2/ negate abs
@@ -267,7 +272,7 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
   s" >r" tok= if  1 0 apply  r-push   exit  then  \ return-stack words
   s" r>" tok= if  0 1 apply  r-pop    exit  then
   s" r@" tok= if  0 1 apply  r-fetch  exit  then
-  t.str number swap drop if  0 1 apply  knum  exit  then          \ literal -> number
+  t.str number if  0 1 apply  0= if KZ else KN then kset  exit  then  drop  \ literal -> number (0 -> KZ)
   s" dup"   tok= if  a-dup   exit then            \ shufflers (kind-permuting)
   s" drop"  tok= if  1 0 apply  exit then
   s" swap"  tok= if  a-swap  exit then
@@ -282,9 +287,9 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
   s" c!" tok= if  need-addr 2 0 apply  exit then
   s" +"  tok= if  a-plus   exit then              \ arithmetic
   s" -"  tok= if  a-minus  exit then
-  s" *"  tok= if  a-mul    exit then
-  s" /"  tok= if  a-mul    exit then
-  s" mod" tok= if a-mul    exit then
+  s" *"  tok= if  a-mul     exit then
+  s" /"  tok= if  a-divmod  exit then
+  s" mod" tok= if a-divmod  exit then
   s" 1+" tok= if  a-incr   exit then
   s" 1-" tok= if  a-incr   exit then
   s" cell+" tok= if a-incr exit then
@@ -325,8 +330,9 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
 : .ctl  ( -- )  cerr @  if  s" ctl!" type cr  then ;
 : .rerr ( -- )  rerr @  if  s" r!"   type cr  then ;
 : .tyy  ( -- )  terr @  if  s" ty!"  type cr  then ;
-: .flags ( -- )  .unknowns  .imb  .ctl  .rerr  .tyy ;
-: clean? ( -- f )  unk @ 0=  imb @ 0= and  cerr @ 0= and  rerr @ 0= and  terr @ 0= and ;
+: .zero ( -- )  zerr @  if  s" /0!"  type cr  then ;
+: .flags ( -- )  .unknowns  .imb  .ctl  .rerr  .tyy  .zero ;
+: clean? ( -- f )  unk @ 0=  imb @ 0= and  cerr @ 0= and  rerr @ 0= and  terr @ 0= and  zerr @ 0= and ;
 
 : report ( -- )                                  \ for check{
   finalize
@@ -348,7 +354,7 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
 
 \ --- the two entry points ----------------------------------------------------
 : reset-sim ( -- )
-  0 hgt !  0 lo !  0 unk !  0 imb !  0 cerr !  0 rerr !  0 rdep !  0 terr !
+  0 hgt !  0 lo !  0 unk !  0 imb !  0 cerr !  0 rerr !  0 rdep !  0 terr !  0 zerr !
   csbase @ csp !  unkbase @ unkp !  a-clear ;
 : check{ ( -- )           \ check{ <words> }
   reset-sim
@@ -416,4 +422,17 @@ variable dinkbuf 64 cells allot  variable dki    \ declared input kinds, in orde
 \ i/o + misc
 1 0 prim emit     0 1 prim key      1 0 prim .        1 0 prim u.
 0 1 prim depth    0 0 prim space    0 0 prim cr       0 0 prim bye
-1 1 prim square
+0 1 prim here     1 0 prim allot    1 1 prim square
+
+\ --- recognize `variable` / `constant` so anvil can check STATEFUL code -----------
+\ These shadow the kernel words while anvil is loaded (anvil's own internals are already
+\ compiled above): `variable counter` or `5 constant LIMIT` makes the real word *and* registers
+\ the name with effect ( -- x ), so a word that uses it is checked instead of flagged
+\ `? counter`. We stash the kernel CFAs first and `execute` them — fr makes a word self-visible
+\ during its own definition, so `: variable variable … ;` would recurse forever. After the
+\ kernel word runs it's `latest`, so we read its name from the dictionary header to register it.
+' variable  constant kvar
+' constant  constant kconst
+: reg-latest ( -- )  0  latest 9 +  latest 8 + c@ 127 and  0 1  register ;  \ name from the newest header
+: variable ( -- )         kvar   execute  reg-latest ;
+: constant ( n -- )       kconst execute  reg-latest ;

@@ -88,14 +88,17 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (the whole repo is Python-fr
   against the declaration. Verdicts: `ok` · `BAD ( … )` (declared *arity* mismatch) · `? names`
   (unknown words, named) · `br!` (if/else/then arms disagree, or a loop body isn't
   stack-neutral) · `ctl!` (unbalanced control structure — `if` w/o `then`, &c.) · `r!`
-  (return stack `>r`/`r>`/`r@` unbalanced) · `ty!` (cell-kind error). It checks `if/else/then`,
-  `begin/until`, `begin/while/repeat`, counted `do/loop`, *declared* recursion (the self-call
-  assumes the decl), and **cell kinds** — a conservative type layer (number/address/flag/
-  unknown, riding on the height sim) where `@ ! c@ c!` need an address, `* / mod` reject
-  address/flag operands, and `+` rejects address+address; kinds flow from literals,
-  comparisons, and kind-named decl inputs (`addr`/`n`/`flag`), and *unknown is absorbing* so
-  false positives are essentially nil. Sound for the structured code fr produces; proves
-  **shape (+ a little kind), not value**. The reason the project exists; `anvil-spec.md` is its spec.
+  (return stack `>r`/`r>`/`r@` unbalanced) · `ty!` (cell-kind error) · `/0!` (division by a
+  literal zero). It checks `if/else/then`, `begin/until`, `begin/while/repeat`, counted
+  `do/loop`, *declared* recursion (the self-call assumes the decl), and **cell kinds** — a
+  conservative type layer (number/address/flag/unknown, riding on the height sim) where
+  `@ ! c@ c!` need an address, `* / mod` reject address/flag operands, and `+` rejects
+  address+address; kinds flow from literals, comparisons, and kind-named decl inputs
+  (`addr`/`n`/`flag`), and *unknown is absorbing* so false positives are essentially nil. It
+  also **shadows `variable`/`constant`** (building the real word *and* registering its name), so
+  it checks *stateful* code instead of flagging the variable unknown. Sound for the structured
+  code fr produces; proves **shape (+ a little kind), not value**. The reason the project
+  exists; `anvil-spec.md` is its spec.
 - **`forge.fr`** — the generate → check → repair loop, **self-hosted in fr**: a generator
   builds candidate threaded bodies, the self-hosted `anvil` (`check-body`) verifies each
   one's stack effect, shape-valid candidates are `execute`d on examples, and the first

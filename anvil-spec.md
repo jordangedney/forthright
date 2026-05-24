@@ -29,16 +29,20 @@ does several things a bare Forth wouldn't until (maybe) crashing at runtime:
 8. **check cell kinds** — a light type layer over the height sim tracks each cell as
    *number / address / flag / unknown*. `@ ! c@ c!` require an address; `* / mod` reject an
    address or flag operand; `+` rejects address+address (verdict `ty!`);
-9. **support recursion** — a word given a declaration may call itself; the self-call is
-   checked against the *declared* effect, then the inferred body is verified against the
-   same declaration (the assumption is discharged).
+9. **catch division by a literal zero** — `/` or `mod` with a literal-`0` divisor (verdict `/0!`);
+10. **know `variable`/`constant`** — declaring one registers its name (effect `( -- x )`), so a
+    word that uses it is checked rather than flagged unknown — anvil works on *stateful* code;
+11. **support recursion** — a word given a declaration may call itself; the self-call is
+    checked against the *declared* effect, then the inferred body is verified against the
+    same declaration (the assumption is discharged).
 
 The verdicts are: `ok` · `BAD ( … -- … )` (declared *arity* mismatch) · `? names` (unknown
 words) · `br!` (branch/loop arms disagree) · `ctl!` (unbalanced control structure) · `r!`
-(return stack unbalanced) · `ty!` (cell-kind error). A word can earn several at once; `BAD` is
-reserved for the arity headline, the other verdicts explain everything else. It is **sound for
-the straight-line and structured code fr produces** (each structured construct reduces to a
-height constraint; the kind layer is deliberately conservative — see below).
+(return stack unbalanced) · `ty!` (cell-kind error) · `/0!` (division by a literal zero). A word
+can earn several at once; `BAD` is reserved for the arity headline, the other verdicts explain
+everything else. It is **sound for the straight-line and structured code fr produces** (each
+structured construct reduces to a height constraint; the kind layer is deliberately
+conservative — see below).
 
 ## The core: abstract stack simulation
 
@@ -129,6 +133,16 @@ high-confidence mistakes — fetching through a literal/flag, arithmetic on a bo
 declaration is again the redundancy (`def f ( n -- n ) @ ;` is caught because the input was
 *declared* a number).
 
+A literal `0` carries one extra bit of *value* knowledge (a number known to be zero); `/` or
+`mod` with that on top is flagged `/0!`. The bit is lost the moment the cell is touched
+(`0 1+` is just a number), so only a genuinely literal-zero divisor is caught.
+
+**Stateful code.** While anvil is loaded it shadows `variable` and `constant`: each still
+builds the real word *and* registers the name with effect `( -- x )`. So `variable c` then
+`def bump ( -- ) c @ 1+ c ! ;` checks cleanly, instead of `bump` being rejected for the
+"unknown word" `c`. (It wraps the kernel words via stashed CFAs + `execute`, because fr makes a
+word self-visible inside its own definition.)
+
 ## Expected behavior (test vectors)
 
 (anvil's interface is `def name ( decl ) body ;` and `check{ … }`.)
@@ -151,6 +165,8 @@ declaration is again the redundancy (`def f ( n -- n ) @ ;` is caught because th
 | `check{ 5 6 ! }` | `ty!` — `!` to a number, not an address |
 | `check{ 1 2 < 3 * }` | `ty!` — `*` on a flag |
 | `def f ( addr -- n ) dup @ swap cell+ @ + ;` | `ok` — fetched values are unknown, so `+` is fine |
+| `check{ 5 0 / }` | `/0!` — division by a literal zero |
+| `variable c  def bump ( -- ) c @ 1+ c ! ;` | `ok` — anvil knows `c` is an address-producer |
 | `check{ dup }` | infers `( x -- yy )` — a phrase that needs 1, leaves 2 |
 
 ## The boundary (why forge exists)
