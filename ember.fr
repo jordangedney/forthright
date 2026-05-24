@@ -18,9 +18,9 @@
 \ the loop that ties them together.
 \
 \   keys  : space/s = step · r = run to end · e = edit (type a new target) · q/Esc = quit
-\   edit  : `e` reads a line of Forth and re-targets the stepper — `3 square`, `2 3 + square`,
-\           etc. (numbers push, words run as setup, the last word is the one to step). No
-\           restart needed. Definitions still go at the REPL before launching.
+\   edit  : `e` reads a line of Forth. End it in a colon word to step that word
+\           (`3 square`, `2 3 + square`); otherwise the line just runs and the current
+\           word re-steps on the result (`5 5 +`, `7`). Unknown words flash `<word> ?`.
 \   panels: call (the call path, e.g. cube > square) · code (the current word's body,
 \           current cell highlighted) · data (the live stack).
 \   scope : follows control flow — if/else/then and begin/until/while/repeat step
@@ -148,13 +148,18 @@ variable ci
   7 2 atclr  2 sgr .data reset    7 9 at  .s
   9 2 atclr  draw-status ;
 
-\ --- live edit: type a new target into the TUI ------------------------------
-\ `e` reads a line of Forth and re-targets the stepper. Tokens read as you'd expect:
-\ numbers push (the new args), words run as setup, and the LAST token is the word to
-\ step — `2 3 + square` runs `+` (->5) then steps square; `3 square` steps square on 3.
-\ The target must be a *colon definition* (you can't step a primitive or an unknown
-\ word — those flash `<word> ?` and leave the current stepping untouched). Make new
-\ definitions at the REPL before launching; the edit line composes existing words.
+\ --- live edit: type a line of Forth into the TUI --------------------------
+\ `e` reads a line and re-targets the stepper. Numbers push, words run, and:
+\   * if the line ends in a colon word, that word becomes the new step target
+\     (the rest is setup) — `3 square` steps square on 3; `2 3 + square` runs `+`
+\     then steps square on 5.
+\   * otherwise the whole line just runs as stack setup and the *current* word is
+\     re-stepped on the result — `5 5 +` leaves 10 and re-steps the current word;
+\     `7` re-steps it on 7.
+\   * an *unknown* token (a typo, or a word you haven't defined) flashes `<word> ?`
+\     and leaves the stepping untouched.
+\ Make new definitions at the REPL before launching; the edit line composes
+\ existing words (it can't compile `:` definitions).
 variable lbuf  88 allot
 variable lblen  variable lcur
 variable pa  variable pl  variable pf           \ previous token (addr,len) + have-prev
@@ -171,9 +176,14 @@ variable pa  variable pl  variable pf           \ previous token (addr,len) + ha
   pa @  pl @ ;
 : colon? ( addr len -- f )                     \ is this token the name of a colon definition?
   find  dup if  @ 'docol =  else  drop 0  then ;
-: setup-token ( addr len -- )                  \ a non-target token: number push / word run
+: known? ( addr len -- f )                     \ a number, or any defined word?
+  2dup number nip  >r  find  r>  or ;
+: setup-token ( addr len -- )                  \ run one token: number push / word execute
   2dup number if  >r 2drop r>
   else  drop  find  dup if  execute  else  drop  then  then ;
+: run-all ( -- )                               \ execute every token (the whole line is setup)
+  0 lcur !
+  begin  token dup  while  setup-token  repeat  2drop ;
 : run-setup ( -- target )                      \ run every token but the last; the last = target
   0 lcur !  0 pf !
   begin  token dup  while                       ( addr len )
@@ -195,11 +205,13 @@ variable pa  variable pl  variable pf           \ previous token (addr,len) + ha
 : edit-target ( -- )                           \ prompt, read a line, re-target the stepper
   9 2 atclr  [char] > emit space  show-cursor
   read-line  hide-cursor
-  last-token  2dup colon? if                    ( addr len )
-    2drop  clear-stack  run-setup  einit         \ valid colon target: re-target
-  else                                           \ unknown / primitive / empty: flash, keep current
+  last-token  2dup colon? if                    ( addr len )  \ ends in a colon word: step it
+    2drop  clear-stack  run-setup  einit
+  else 2dup known? if                            ( addr len )  \ ends in a number/primitive:
+    2drop  clear-stack  run-all  ecfa @ einit     \   run the whole line, re-step current word
+  else                                           ( addr len )  \ unknown token: flash, keep current
     9 2 atclr  3 fg  type  space [char] ? emit  reset  key drop
-  then ;
+  then then ;
 
 \ --- the event loop ----------------------------------------------------------
 : ember ( cfa -- )                \ usage:  <args> ' <word> ember
