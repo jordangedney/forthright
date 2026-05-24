@@ -145,11 +145,12 @@ Python spec it follows.
       — the toolkit to read source, match names, and print a report (~2.8 KB text)
 - [x] Glue for practical programming: `exit 2dup 2drop nip rot 1+ 1- and or`,
       `begin while repeat`; comments `\` and `(` (~3.3 KB text)
-- [x] **anvil.fr**, self-hosted: a stack-effect verifier written *in fr* (~90
+- [x] **anvil.fr**, self-hosted: a stack-effect verifier written *in fr* (~110
       lines). `check{ … }` infers a phrase's `( in -- out )`; `def name ( decl )
-      body ;` infers a definition's effect, registers it (so later words compose),
-      and flags any mismatch with the declared signature. The thesis made literal
-      — the redundancy Forth lacks, in a trust base small enough to audit.
-      (`anvil-reference.py` = Python spec.)
-- [ ] anvil.fr next: branch analysis — both arms of `if/else` must leave the same
-      stack effect (the rule that makes a concatenative checker genuinely powerful)
+      body ;` infers + registers a word's effect (so words compose) and flags any
+      mismatch with the declared signature; **`if/else/then` are analyzed** — both
+      arms must leave the same net effect or it's flagged `br!` (an `if…then` with
+      no `else` must be height-neutral). The thesis made literal — the redundancy
+      Forth lacks, in a trust base small enough to audit. (`anvil-reference.py` = spec.)
+- [ ] beyond anvil: the generate → check → repair loop (AI writes fr, anvil
+      verifies, repeat) — the broader pipeline the whole thesis is about

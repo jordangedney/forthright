@@ -18,8 +18,11 @@
 \ --- storage: an effect table + a names blob (both bump-allocated) -----------
 variable tp   variable tbase      \ table: entries of [name-ptr, name-len, cons, prod]
 variable np   variable nbase      \ names blob (copied token text)
+variable csp  variable csbase     \ control-flow stack (for nested if/else/then)
+variable imb                      \ count of branch imbalances found
 here dup tbase ! tp !   8000 allot
 here dup nbase ! np !   8000 allot
+here dup csbase ! csp !  400 allot
 
 \ --- simulation + scratch state ----------------------------------------------
 variable hgt   variable lo   variable unk   variable pp
@@ -49,6 +52,8 @@ variable name-a variable name-n       \ a def's name
 
 \ --- building the table ------------------------------------------------------
 : ,e ( x -- )  tp @ !  tp @ 8 + tp ! ;          \ append a cell, bump tp
+: cs-push ( x -- )  csp @ !  csp @ 8 + csp ! ;   \ push onto the control stack
+: cs-pop  ( -- x )  csp @ 8 - csp !  csp @ @ ;   \ pop from the control stack
 : copy-name ( addr len -- ptr )                  \ copy token into the names blob
   cn-n !  cn-a !
   np @                                           \ result = current np
@@ -92,18 +97,47 @@ variable name-a variable name-n       \ a def's name
 : rp?   ( -- flag )  [char] ) 1char? ;
 : dd?   ( -- flag )  tok-n @ 2 =  tok-a @ c@ [char] - =  and
                      tok-a @ 1+ c@ [char] - =  and ;
+: if?   ( -- flag )  tok-n @ 2 =  tok-a @ c@ [char] i =  and
+                     tok-a @ 1+ c@ [char] f =  and ;
+: else? ( -- flag )  tok-n @ 4 =  tok-a @ c@      [char] e =  and
+                     tok-a @ 1+ c@ [char] l =  and  tok-a @ 2 + c@ [char] s =  and
+                     tok-a @ 3 + c@ [char] e =  and ;
+: then? ( -- flag )  tok-n @ 4 =  tok-a @ c@      [char] t =  and
+                     tok-a @ 1+ c@ [char] h =  and  tok-a @ 2 + c@ [char] e =  and
+                     tok-a @ 3 + c@ [char] n =  and ;
+
+\ --- branch handling: an if/else/then must leave both arms at the same height -
+: bad-branch ( -- )  imb @ 1+ imb ! ;
+: do-if ( -- )      \ consume the flag, then remember the arm-start height
+  1 0 apply  hgt @ cs-push  0 cs-push ;          \ push h0, kind=0 (no else yet)
+: do-else ( -- )    \ stash the true-arm result, reset to h0 for the else-arm
+  cs-pop drop  cs-pop                            \ ( h0 )  (drop kind=0)
+  hgt @ swap  hgt !                              \ hT on stack ; hgt := h0
+  cs-push  1 cs-push ;                           \ push hT, kind=1 (else seen)
+: do-then ( -- )    \ require the two arms to agree
+  cs-pop  if                                     \ kind=1: had an else
+    cs-pop  hgt @ =  0=  if  bad-branch  then     \ hT must equal else-arm height
+  else                                           \ kind=0: empty else arm at h0
+    cs-pop  dup hgt @ =  0=  if  bad-branch  then  \ true-arm must be height-neutral
+    hgt !
+  then ;
 
 \ --- classify one token into the running simulation --------------------------
 : classify ( -- )
+  if?   if  do-if    exit  then                   \ control flow first
+  else? if  do-else  exit  then
+  then? if  do-then  exit  then
   t.str number  swap drop                        \ a number?
   if  0 1 apply  exit  then                       \ literal: ( -- n )
   t.str tlookup                                   \ a known word?
   if  apply  else  2drop  unk @ 1+ unk !  then ;   \ else unknown
 
 \ --- reports -----------------------------------------------------------------
+: .imb ( -- )  imb @  if  [char] b emit [char] r emit [char] ! emit cr  then ;
 : report ( -- )                                  \ for check{
   lo @ negate   lo @ negate hgt @ +   .eff
-  unk @  if  [char] ? emit space unk @ .  then ;
+  unk @  if  [char] ? emit space unk @ .  then
+  .imb ;
 
 : okmsg  ( -- )  [char] o emit [char] k emit cr ;
 : badmsg ( -- )  [char] B emit [char] A emit [char] D emit space din @ dout @ .eff ;
@@ -113,11 +147,12 @@ variable name-a variable name-n       \ a def's name
   has-decl @  if
     cons-i @ din @ =  prod-i @ dout @ =  and
     if  okmsg  else  badmsg  then
-  then ;
+  then
+  .imb ;
 
 \ --- the two entry points ----------------------------------------------------
 : check{ ( -- )           \ check{ <words> }
-  0 hgt !  0 lo !  0 unk !
+  0 hgt !  0 lo !  0 unk !  csbase @ csp !  0 imb !
   begin  read-tok  end? 0=  while  classify  repeat
   report ;
 
@@ -128,7 +163,7 @@ variable name-a variable name-n       \ a def's name
 
 : def ( -- )              \ def name [ ( in -- out ) ] body ;
   read-tok  tok-a @ name-a !  tok-n @ name-n !
-  0 hgt !  0 lo !  0 unk !  0 has-decl !
+  0 hgt !  0 lo !  0 unk !  0 has-decl !  csbase @ csp !  0 imb !
   read-tok  lp? if  parse-decl  read-tok  then
   begin  semi? 0=  while  classify  read-tok  repeat
   lo @ negate cons-i !  cons-i @ hgt @ + prod-i !

@@ -1061,7 +1061,7 @@ inbuf_pos:  .quad 0			# parse cursor into inbuf
 	.equ   return_stack_top, return_stack + 4096
 	.lcomm numbuf, 32
 	.lcomm emitbuf, 8		# 1-byte scratch for `emit`
-	.equ   inbuf_size, 4096
-	.lcomm inbuf, inbuf_size
+	.equ   inbuf_size, 65536	# big enough that source files fit in one read;
+	.lcomm inbuf, inbuf_size	# a token still can't span a refill (a known limit)
 	.equ   dict_size, 65536		# room for definitions created at runtime
 	.lcomm dict_space, dict_size

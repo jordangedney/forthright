@@ -82,6 +82,13 @@ does `%rsi += *%rsi`). To add more control flow (`while/repeat`, `do/loop`), fol
 pattern. `ZBRANCH`/`BRANCH`/`LIT`/`EXIT` are headerless internal words (emitted by code, not
 typed), so they are not in the `FIND` chain.
 
+**Known limitation — a token cannot span an input refill.** `_word` returns a pointer into
+`inbuf`; if a token straddles the end of one `read` and the next, it splits (you'll see a
+bogus partial token like `rop`). `inbuf` is 64 KB so whole source files normally arrive in
+one read (pipe reads align to write/newline boundaries), but a `.fr` file larger than that,
+or a single token near a buffer edge, can still trip it. The robust fix (copy tokens into a
+holding buffer so they span refills) isn't done yet.
+
 **Critical, non-obvious invariant — helper-routine calling convention:** because `%rsp` *is*
 the data stack, `_word`/`_find`/`_number`/`_refill` are reached with `call`/`ret` but **must
 pass everything in registers and never touch the data stack** (the return address lives there

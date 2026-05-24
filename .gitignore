@@ -2,3 +2,5 @@
 fr
 __pycache__/
 *.pyc
+*.sw?
+.*.sw?
