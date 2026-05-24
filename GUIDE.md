@@ -293,12 +293,14 @@ Built and working, all self-hosted where it counts: the kernel, the prelude (wit
 self-hosted disassembler `see` and tracer `trace`), the verifier `anvil`, the
 synthesis loop `forge`, the terminal layer `term.fr`, `ptrace.fr` (process control via
 `syscall6`), and `ember.fr` — a visual stepper that drives the **real** fr engine under
-ptrace: it forks a child, single-steps it, and shows the live `call`/`code`/`data` with
-the data stack read straight out of the process (`PEEKDATA`). Run it with no Python:
-`./fr prelude.fr term.fr ptrace.fr ember.fr`, then type `5 ' square ember`. fr writes,
-verifies, forges, and *watches its own engine run*. So everything the Python `ember` could
-do, fr now does; the Python one stays only as the more mature UI (Nord curses, dictionary
-panel), not a capability fr lacks.
+ptrace: it forks a child, single-steps it, and shows a **full-screen, multi-panel** view
+(`code`/`data`/`call`/`dict` + status, matching the Python ember's layout) with the data
+stack read straight out of the process (`PEEKDATA`). `s` steps, `a` autoplays (`+`/`-`
+speed), `r` runs, `e` re-targets live, and a printing word's stdout is captured into the
+`out` panel (the child's fd 1/2 are piped, so it can't corrupt the TUI). Run it with no
+Python: `./fr prelude.fr term.fr ptrace.fr ember.fr`, then type `5 ' square ember`. fr
+writes, verifies, forges, and *watches its own engine run* — at full feature parity with the
+Python `ember`, which now stays only as a reference UI, not a capability fr lacks.
 
 Open directions if continuing: more `forge` targets / a smarter generator; pushing
 `s=`/`find`/`number` into the prelude for an even smaller kernel; allowing control flow

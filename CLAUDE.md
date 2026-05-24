@@ -40,8 +40,9 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the
   (`cat prelude.fr term.fr …`). ANSI output (`clear at fg bg sgr bold reset
   hide-cursor show-cursor`; `cleol`/`atclr` for flicker-free in-place redraw; `fg24` +
   a `nord-*` true-colour palette; `box` + UTF-8 line glyphs for the bordered dashboard) and
-  termios raw/cbreak mode via `ioctl` (`raw-on`/`raw-off`
-  clear `ICANON|ECHO`; `term-size` reads `TIOCGWINSZ`). With `key` + `see` + `trace`,
+  termios raw/cbreak mode via `ioctl` (`raw-on`/`raw-off` clear `ICANON|ECHO`; `raw-timed`/
+  `raw-poll` flip VMIN/VTIME so `key` can time out — the frame clock for ember's autoplay;
+  `term-size` reads `TIOCGWINSZ`). With `key` + `see` + `trace`,
   this is the full substrate for an interactive ember in fr.
 - **`ptrace.fr`** — process control + ptrace in fr (on `syscall6`): `fork`/`wait4`/`traceme`/
   `ssstep`/`getregs`/`peekdata`. `watch` drives the *real* fr engine: fork (child shares the
@@ -50,15 +51,30 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the
 - **`ember.fr`** — the **self-hosted explorer**: a visual stepper driving the *real* fr engine
   under ptrace (built on `ptrace.fr` + `term.fr`). `<args> ' <word> ember` forks a child that
   runs the word, then single-steps it to each `jmp *(%rax)` boundary, reading the child's real
-  registers and data stack (`peekdata`). A Nord-coloured bordered dashboard: `call` (live call
-  path `cube > square`, inferred from `docol`-entries/`EXIT`s), `code` (current word's body,
-  live cell highlighted), `data` (the real stack `5 → 5 5 → 25`). Keys: `space`/`s` step, `r`
-  run to end, `e` edit (re-fork on a new target: `3 square`, `2 3 + square`; unknown/non-colon
-  flashes `<word> ?`), `q`/`Esc` quit. Run with **no Python**: `./fr prelude.fr term.fr ptrace.fr
+  registers and data stack (`peekdata`). A **full-screen, responsive** Nord dashboard (`measure`
+  re-reads `term-size` each frame) that now mirrors the Python `ember`'s layout: `code` (the
+  word's body, one cell per row, live cell highlighted / executed cells dimmed, scrolls),
+  `data` (the real stack `5 → 5 5 → 25`, top first), `call` (the live path `cube > square`,
+  inferred from `docol`-entries/`EXIT`s), `dict` (the live dictionary, colon words highlighted),
+  `out` (the child's **captured stdout** — `launch` points the child's fd 1/2 at an O_NONBLOCK
+  pipe and the parent drains it each frame, so a printing word lands in the panel instead of
+  corrupting the TUI), an input box, and a key/status row. Keys: `space`/`s` step, **`a`
+  autoplay** (timer-driven via `raw-timed` VMIN/VTIME; `+`/`-` change speed), `r` run to end,
+  `e` edit, `q`/`Esc` quit. **The `e` edit line is a REPL** (`edit-target`): each line is
+  compiled (`compile-line`) into an anonymous thread — with the *resting* stack re-pushed in
+  front — and stepped (so `5 square`, `4 4 +`, or `3` all work; an unknown token flashes
+  `<word> ?`). At the thread's top-level `EXIT`, `l-step` calls `e-finish`: snapshot the data
+  stack into `esaved`, kill the child, and **rest** (it doesn't `bye`/exit), so the result
+  carries to the next line — `5 5 5 +` rests at `10 5`, then `3 *` → `30 5`. (`e-rest` gates
+  this to the interactive explorer; `ember-trace` leaves it off and runs to `bye`.) Run with **no Python**: `./fr prelude.fr term.fr ptrace.fr
   ember.fr`, then type `5 ' square ember` (or the one-line `./ember-fr` shell launcher — the
   terminal *is* the tty `raw-on` needs). `ember-trace` is its non-interactive core (prints the
-  live stack per dispatch). The lighter, no-ptrace text stepper is the prelude's `trace`. The
-  Python `ember` stays only as a more *mature* UI (curses chrome), not a capability fr lacks.
+  live stack per dispatch). The lighter, no-ptrace text stepper is the prelude's `trace`. ember.fr
+  now matches the Python `ember`'s panels, keys, and behavior; the Python one is just a reference UI.
+  The visual design doc is **`index.html`** (the "NEXT-runner" React mock — its `steps.jsx`/`tui.jsx`
+  aren't committed, but its `:root` Nord palette and pulse keyframes are the spec); ember.fr mirrors
+  it in the terminal: the `nord-*` palette, a `▸` IP marker, reverse-video fill on the executing
+  cell, and a one-frame reverse "pulse" on the data/call panels when they change (see `l-pulse`).
 - **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted), built on the
   prelude. `check{ … }`
   infers a phrase's `( in -- out )` by abstract stack simulation; `def name ( decl ) body ;`

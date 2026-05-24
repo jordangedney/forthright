@@ -128,8 +128,9 @@ word's body; `exit` pops back. The Python engine is a deliberate superset of fr
 `ember.fr` is the same idea, **written in fr** — and it drives the *real* engine, not a
 model: it forks fr, runs the word in the child, and single-steps the child under ptrace
 (`ptrace.fr`) to each `jmp *(%rax)` dispatch, reading the child's actual registers and
-data stack with `PEEKDATA`. The view is a Nord-coloured, bordered dashboard (`term.fr`
-has true-colour `fg24`/`nord-*` words + `box` drawing), matching the Python ember's look.
+data stack with `PEEKDATA`. The view is a **full-screen, responsive** Nord dashboard
+(`term.fr` has true-colour `fg24`/`nord-*` words + `box` drawing; the layout re-reads
+`term-size` each frame) that now matches the Python ember's multi-panel layout.
 It runs with **no Python at all**: the kernel loads the library from its file arguments,
 the terminal is the tty `raw-on` needs, and you type a command at the prompt:
 
@@ -138,25 +139,35 @@ the terminal is the tty `raw-on` needs, and you type a command at the prompt:
     ./ember-fr ": cube dup square * ;  3 ' cube ember"   # it pre-runs whatever you pass
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  ember: cube  #2  real engine                          │   (stepped INTO square)
-│  call  cube > square                                   │
-│  code  dup * ;                                         │   (square's body, cursor highlit)
-│  data  3 3                                             │
-│                                                        │
-│  space=step  r=run  e=edit  q=quit                     │
-└──────────────────────────────────────────────────────┘
+ ember : cube  #4                                                    step
+ ┌─code───────────────────────────┐ ┌─data─────────────┐
+ │> 0  dup                        │ │ 5  top           │   (stepped INTO square; live
+ │  1  *                          │ ├─call─────────────┤    cell ▸ highlit, stack peeked
+ │  2  ;                          │ │ cube > square    │    from the child)
+ ├─out────────────────────────────┤ ├─dict─────────────┤
+ │ step 4                         │ │ cube square dup… │
+ └────────────────────────────────┘ └──────────────────┘
+ ┌────────────────────────────────────────────────────┐
+ │ ok>                                                  │
+ └──────────────────────────────────────────────────────┘
+   s=step  a=auto  r=run  e=edit  q=quit
 ```
 
 It **steps into colon words** — it infers the call path from the live dispatch stream
 (`docol`-entries/`EXIT`s), so `code` switches to the callee and `call` shows `cube >
 square`. It **follows control flow** (it's the real engine — `if/else` and loops just
-work). `r` runs to the end, and **`e` is a live edit line** — type `3 square` or `2 3 +
-square` to re-target (it kills the child and forks a fresh one; numbers push, words run
-as setup, the last word is stepped). The non-interactive `ember-trace` prints the live
-stack per dispatch (no tty needed). The lighter, no-ptrace model is the prelude's
-`trace`. So the Python `ember` is no longer a capability fr lacks — only a more mature UI
-(RETURN frames, dictionary, autoplay).
+work). **`a` autoplays** on a timer (`+`/`-` change the speed — the frame clock is a
+`key` read timeout via VMIN/VTIME), and `r` runs to the end. The **`e` edit line is a REPL**:
+each line you enter (`5 square`, `4 4 +`, or just `3`) is compiled into a thread — with the
+resting stack re-pushed in front — and stepped. When the thread reaches its top-level `EXIT`
+the explorer **snapshots the stack and rests** (it does *not* exit), so the result carries to
+the next line: `5 5 5 +` rests at `10 5`, then `3 *` continues to `30 5`. A word that
+**prints** has its stdout captured into the `out` panel — `launch` points the child's fd 1/2
+at a pipe, so the output shows up instead of corrupting the TUI. The non-interactive
+`ember-trace` prints the live stack per dispatch (no tty needed); the lighter, no-ptrace model
+is the prelude's `trace`. So the Python `ember` is no longer a capability fr lacks — fr's
+explorer now matches its panels, keys, and behavior, and the Python one stays only as a
+reference UI.
 
 ## Verifying it: anvil.fr (self-hosted)
 
@@ -257,9 +268,13 @@ new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checki
       dictionary *is* the child's), run a word in the child, single-step it from the parent,
       and decode `%rax` at each `jmp *(%rax)` dispatch. `5 ' square watch` →
       `… execute square dup * ; bye` — the real engine traced, observed entirely from fr.
-- [x] **ember.fr** — the **self-hosted explorer**: `ember`'s `call`/`code`/`data` dashboard
-      driving the *real* engine via `ptrace.fr`. `5 ' square ember` (or `./ember-fr`) forks a
-      child, single-steps it, infers the call path from the dispatch stream, and reads the
-      data stack with `PEEKDATA` (`5 → 5 5 → 25`). `r` runs, `e` is a live edit line (re-fork
-      on a new target). No Python — the terminal is the tty. fr now writes, verifies, forges,
-      *and watches its own engine run*; the Python `ember` is just a more mature UI now.
+- [x] **ember.fr** — the **self-hosted explorer**: a **full-screen, responsive** multi-panel
+      dashboard (`code`/`data`/`call`/`dict` + an `out` line, an input box and a key row —
+      matching the Python ember's layout) driving the *real* engine via `ptrace.fr`. `5 '
+      square ember` (or `./ember-fr`) forks a child, single-steps it, infers the call path
+      from the dispatch stream, and reads the data stack with `PEEKDATA` (`5 → 5 5 → 25`). `s`
+      steps, **`a` autoplays** (`+`/`-` speed), `r` runs, `e` is a live edit line (re-fork on a
+      new target); the `dict` panel hides the explorer's own plumbing, and a printing word's
+      stdout is **captured into the `out` panel** (the child's fd 1/2 are piped). No Python —
+      the terminal is the tty. fr now writes, verifies, forges, *and watches its own engine
+      run*, at full feature parity with the Python `ember` (which stays as a reference UI).

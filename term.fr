@@ -13,6 +13,11 @@
 \ end-of-line and overwrite), so the screen never blanks. Coalescing the per-byte writes
 \ into one `type` per frame is a separate, optional syscall-count optimization (ROADMAP).
 
+\ Mark the newest *prelude* word before this file defines anything: ember's dict
+\ panel uses it to hide its own tooling (term/ptrace/ember) and show only the
+\ kernel + prelude + user vocabulary. (Dictionary headers grow upward in memory.)
+latest constant prelude-top
+
 \ --- ANSI escape sequences ---------------------------------------------------
 \ CSI = ESC '[' . All sequences are ESC '[' <params> <final-byte>.
 : esc  ( -- )   27 emit ;
@@ -28,9 +33,10 @@
 
 \ SGR (Select Graphic Rendition): colours and styles. 0=reset, 1=bold,
 \ 30..37 = foreground, 40..47 = background, +60 for the bright variants.
-: sgr   ( n -- )   csi u. [char] m emit ;
-: reset ( -- )     0 sgr ;
-: bold  ( -- )     1 sgr ;
+: sgr     ( n -- )   csi u. [char] m emit ;
+: reset   ( -- )     0 sgr ;
+: bold    ( -- )     1 sgr ;
+: reverse ( -- )     7 sgr ;            \ swap fg/bg — a "filled" highlight bar
 : fg    ( n -- )   30 + sgr ;           \ e.g.  3 fg  -> yellow text (basic 8-colour)
 : bg    ( n -- )   40 + sgr ;
 
@@ -45,6 +51,7 @@
 : nord-yellow ( -- )  235 203 139 fg24 ;   \ #EBCB8B aurora  — the highlighted cell
 : nord-purple ( -- )  180 142 173 fg24 ;   \ #B48EAD aurora  — the call path
 : nord-green  ( -- )  163 190 140 fg24 ;   \ #A3BE8C aurora
+: nord-frost  ( -- )  143 188 187 fg24 ;   \ #8FBCBB frost   — the ember title accent
 : nord-dim    ( -- )   97 110 136 fg24 ;   \ #616E88 muted   — panel labels
 : nord-fg     ( -- )  216 222 233 fg24 ;   \ #D8DEE9 snow    — normal text
 
@@ -99,6 +106,15 @@ variable saved-lflag          \ original c_lflag, to restore exactly on raw-off
   tcget
   lflag  saved-lflag @  swap !
   tcset ;
+
+\ c_cc[] (the control-char array) begins at offset 17; VTIME is index 5, VMIN is
+\ index 6. With ICANON already cleared, VMIN=0 / VTIME=n makes a `key` read time
+\ out after n tenths of a second (read returns 0 -> key returns -1) instead of
+\ blocking — that timeout is what drives ember's autoplay frame clock.
+: vtime! ( n -- )  termbuf 22 + c! ;
+: vmin!  ( n -- )  termbuf 23 + c! ;
+: raw-timed ( tenths -- )  tcget  0 vmin!  vtime!  tcset ;    \ key times out after `tenths`
+: raw-poll  ( -- )         tcget  1 vmin!  0 vtime!  tcset ;  \ back to blocking 1-byte reads
 
 \ window size: struct winsize is { u16 rows, u16 cols, ... }; little-endian.
 variable winbuf  8 allot

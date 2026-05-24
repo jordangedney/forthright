@@ -82,18 +82,24 @@ def finish(pid, fd):
 
 
 def selftest():
-    """Step `5 square` on the real engine; the live stack must reach 25, then exit."""
+    """Step `5 square` on the real engine; the live stack must reach 25, then REST
+    (the REPL keeps the result — it must not exit)."""
     pid, fd = spawn("5 ' square ember")
     frames = read_until(fd, b"q=quit")
     for _ in range(12):
         os.write(fd, b"s")
         frames += read_until(fd, b"q=quit", 2.0)
-        if b"exited" in frames:
+        if b"25" in frames:
             break
+    # keep stepping past the end — it should rest, never exit
+    for _ in range(3):
+        os.write(fd, b"s")
+        frames += read_until(fd, b"q=quit", 1.0)
     os.write(fd, b"q")
     frames += drain(fd)
     finish(pid, fd)
-    checks = [("dup", b"dup" in frames), ("25", b"25" in frames), ("exited", b"exited" in frames)]
+    checks = [("dup", b"dup" in frames), ("25", b"25" in frames),
+              ("no-exit", b"exited" not in frames)]
     ok = all(c[1] for c in checks)
     print("EMBER PASS" if ok else "EMBER FAIL (missing: " +
           " ".join(n for n, h in checks if not h) + ")")
@@ -137,12 +143,98 @@ def edit_selftest():
     return 0 if ok else 1
 
 
+def auto_selftest():
+    """Press `a` and let autoplay step `5 square` to completion on its own; it must
+    reach 25 and rest (not exit)."""
+    pid, fd = spawn("5 ' square ember")
+    read_until(fd, b"q=quit")
+    os.write(fd, b"a")                             # start autoplay; it self-steps
+    frames = read_until(fd, b"25", 6.0)
+    frames += drain(fd, 1.0)
+    os.write(fd, b"q")
+    frames += drain(fd)
+    finish(pid, fd)
+    ok = (b"25" in frames) and (b"exited" not in frames)
+    print("EMBER AUTO PASS" if ok else "EMBER AUTO FAIL")
+    return 0 if ok else 1
+
+
+def expr_selftest():
+    """A bare expression (no trailing colon word) must compile + step, not flash.
+    Regression for `4 4 +` -> `+ ?`: step it and assert the stack reaches 8."""
+    pid, fd = spawn("ember")
+    read_until(fd, b"> ")
+    os.write(fd, b"4 4 +\r")
+    frames = read_until(fd, b"q=quit", 2.0)
+    for _ in range(10):
+        os.write(fd, b"s")
+        frames += read_until(fd, b"q=quit", 2.0)
+        if b"8" in frames:
+            break
+    os.write(fd, b"q")
+    frames += drain(fd)
+    finish(pid, fd)
+    ok = (b"8" in frames) and (b"+ ?" not in frames)
+    print("EMBER EXPR PASS" if ok else "EMBER EXPR FAIL")
+    return 0 if ok else 1
+
+
+def repl_selftest():
+    """REPL feel: `5 5 5 +` rests at 10 5 (it must NOT exit); then `3 *` continues on
+    that stack to 30 — proving the result carries across entries."""
+    pid, fd = spawn("ember")
+    read_until(fd, b"> ")
+    os.write(fd, b"5 5 5 +\r")
+    f = read_until(fd, b"q=quit", 2.0)
+    for _ in range(12):                             # "N  top" is the stack-top label (no escape collisions)
+        os.write(fd, b"s"); f += read_until(fd, b"q=quit", 2.0)
+        if b"10  top" in f: break
+    rested = (b"10  top" in f) and (b"exited" not in f)
+    os.write(fd, b"e"); time.sleep(0.2); os.write(fd, b"3 *\r")   # continue the session
+    g = read_until(fd, b"q=quit", 2.0)
+    for _ in range(12):
+        os.write(fd, b"s"); g += read_until(fd, b"q=quit", 2.0)
+        if b"30  top" in g: break
+    cont = b"30  top" in g
+    os.write(fd, b"q"); drain(fd); finish(pid, fd)
+    ok = rested and cont
+    print("EMBER REPL PASS" if ok else "EMBER REPL FAIL (rest=%s cont=%s)" % (rested, cont))
+    return 0 if ok else 1
+
+
+def out_selftest():
+    """Step a word that prints, and assert its stdout is captured into the OUTPUT
+    panel (not scribbled over the TUI). It emits chars 'ABC' — distinct from the
+    numbers 65/66/67 on the data stack, so a match can only come from capture."""
+    pid, fd = spawn(": shout 65 emit 66 emit 67 emit ;  ' shout ember")
+    frames = read_until(fd, b"q=quit")
+    for _ in range(10):
+        os.write(fd, b"s")
+        frames += read_until(fd, b"q=quit", 2.0)
+        if b"ABC" in frames:
+            break
+    os.write(fd, b"q")
+    frames += drain(fd)
+    finish(pid, fd)
+    ok = b"ABC" in frames
+    print("EMBER OUT PASS" if ok else "EMBER OUT FAIL")
+    return 0 if ok else 1
+
+
 def main():
     a = sys.argv[1:]
+    if a and a[0] == "--out-selftest":
+        sys.exit(out_selftest())
+    if a and a[0] == "--repl-selftest":
+        sys.exit(repl_selftest())
+    if a and a[0] == "--expr-selftest":
+        sys.exit(expr_selftest())
     if a and a[0] == "--edit-selftest":
         sys.exit(edit_selftest())
     if a and a[0] == "--prompt-selftest":
         sys.exit(prompt_selftest())
+    if a and a[0] == "--auto-selftest":
+        sys.exit(auto_selftest())
     sys.exit(selftest())
 
 

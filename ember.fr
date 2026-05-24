@@ -7,13 +7,24 @@
 \     ./ember-fr                                       shell launcher (runs bare `ember`)
 \
 \ `ember` takes a target on the stack (`5 ' square ember`) or, bare, boots into the edit
-\ prompt so you choose one (`e`'s editor — type `5 square`). Either way you then step it.
+\ prompt (`e`) so you choose one. The edit line is a REPL: each line is compiled and stepped,
+\ and the stack PERSISTS across lines — `5 5 5 +` rests at `10 5`, then `3 *` gives `30 5`.
 \
-\ Panels (a Nord-coloured, bordered dashboard):
+\ A full-screen, Nord-coloured, multi-panel dashboard (re-measured each frame, so
+\ it fills and follows the terminal — like the Python `ember`). It follows the project's
+\ visual design doc (index.html / the "NEXT-runner"): the Nord palette, a ▸ IP marker, a
+\ reverse-video "fill" on the executing cell, and a one-frame pulse (reverse) on the data
+\ stack / call panel whenever they change — the terminal stand-in for the doc's CSS pulses.
+\   code — the current word's body, one cell per row, the live cell (%rsi-8) marked ▸ and
+\          filled, executed cells dimmed; scrolls to keep the live cell in view.
+\   data — the real data stack, peeked out of the child with PTRACE_PEEKDATA, top first.
 \   call — the live call path (e.g. cube > square), inferred from the dispatch stream.
-\   code — the current word's body, the live cell (%rsi-8) highlighted.
-\   data — the real data stack, peeked out of the child with PTRACE_PEEKDATA.
-\ Keys: space/s = step · r = run to end · e = edit (type a new target) · q/Esc = quit.
+\   dict — the live dictionary (newest first); colon words highlighted.
+\   out  — the child's stdout, captured through a pipe (a printing word can't corrupt
+\          the TUI); plus an input box and a key row.
+\ Keys: space/s = step · a = autoplay (timer; +/- speed) · r = run to end ·
+\       e = edit (enter a REPL line) · q/Esc = quit.  At a thread's top-level EXIT the
+\ explorer snapshots the stack and rests (it does not exit) so the result carries forward.
 \
 \ Forking (not exec) shares fr's memory image, so the parent decodes the child's CFAs
 \ and reads its body / stack base (sp0) for free. Depends on prelude.fr term.fr ptrace.fr.
@@ -22,6 +33,9 @@
 variable alive       \ -1 while the traced child is stopped & steppable
 variable lsteps      \ dispatch boundaries advanced through
 variable etop        \ CFA of the top-level word being stepped (for the title / re-run)
+variable anonbuf  130 cells allot   \ a compiled-on-the-fly thread for a typed expression
+                                    \ ( `4 4 +` ): [docol][body…][exit], stepped like any word
+variable lbuf  88 allot   variable lblen   \ the last typed line (shown as the title / re-parsed)
 
 \ --- live call tracking ------------------------------------------------------
 \ We can't see the engine's docol frames directly, so we infer them from the dispatch
@@ -36,12 +50,40 @@ variable lcstk  32 cells allot  variable lcn
     lcn @ 0= if  0 lcur !  else  lcpop lcur !  then  exit  then
   r-rax @ 'docol = if
     lcur @ if  lcur @ lcpush  then   r-rax lcur !  then ;
+\ pulse — what changed on the last step, so the view can flash it (the design's
+\ pulse-stack / pulse-hop): -1 when the data stack (depth or top) / the current word
+\ just changed, so draw-stack / draw-frames invert it for a frame.
+variable prev-top  variable prev-dep  variable prev-cur  variable pulse-s  variable pulse-h
+: l-pulse ( -- )
+  sp0 r-rsp - 8 /  dup prev-dep @ = 0=  swap prev-dep !  >r          \ depth changed? -> R
+  child @ r-rsp peekdata  dup prev-top @ = 0=  swap prev-top !       \ top changed?
+  r> or  pulse-s !
+  lcur @  dup prev-cur @ = 0=  swap prev-cur !  pulse-h ! ;
+\ --- REPL state: the stack persists across entries ----------------------------
+\ When the stepped thread reaches its *top-level* EXIT we snapshot the data stack into
+\ `esaved` and rest (rather than letting the child run on to `bye`): the explorer shows
+\ the result at a prompt, and the next line you enter is compiled with that stack
+\ re-pushed in front of it. So `5 5 5 +` rests at `10 5`; then `3 *` continues to `30 5`.
+variable esaved  64 cells allot   variable endepth   variable eready   variable ei
+variable e-rest                     \ -1 in the interactive explorer (rest at EXIT); 0 for ember-trace
+: capture-stack ( -- )              \ snapshot the child's live data stack (bottom..top) into esaved
+  sp0 r-rsp - 8 /  dup 64 > if  drop 64  then  dup endepth !
+  0 ei !
+  begin  ei @ over <  while
+    child @  sp0 ei @ 1+ cells -  peekdata   esaved ei @ cells + !
+    ei @ 1+ ei !
+  repeat  drop ;
+: e-finish ( -- )                   \ expression complete: snapshot, kill the child, rest at a prompt
+  capture-stack
+  alive @ if  child @ SIGKILL kill  pwait drop  then
+  0 alive !  -1 eready ! ;
 : l-step ( -- )                     \ single-step to the next dispatch boundary (or child death)
   begin
     child @ ssstep  pwait  stopped? 0= if  0 alive !  exit  then
     child @ getregs  dispatch?
   until
-  l-track  lsteps @ 1+ lsteps ! ;
+  e-rest @  r-rax 'exit =  and  lcn @ 0=  and  lcur @ 0= 0=  and  if  e-finish  exit  then  \ top-level EXIT
+  l-track  lsteps @ 1+ lsteps !  l-pulse ;
 : erun ( -- )  begin  alive @  while  l-step  repeat ;   \ run the traced word to completion
 
 \ --- panels ------------------------------------------------------------------
@@ -53,30 +95,52 @@ variable lsj  variable ldepth
     child @  sp0 lsj @ cells -  peekdata  .n space
     lsj @ 1+ lsj !
   repeat ;
-variable lci
-: draw-call ( -- )                  \ the live call path (enclosing words, then the current)
-  lcur @ 0= if  exit  then
-  0 lci !
-  begin  lci @ lcn @ <  while
-    nord-purple lcstk lci @ cells + @  .cfaname  reset  space [char] > emit space
-    lci @ 1+ lci !
-  repeat
-  nord-purple bold  lcur @ .cfaname  reset ;
-variable ldp
-: ltok ( -- )                       \ one cell of the current word's body
-  ldp @  r-rsi 8 -  = if  nord-yellow bold  then   \ highlight the live current cell
-  ldp @ @
-  dup 'exit    = if  drop [char] ; emit                                      ldp @ 8 +  ldp !
-  else dup 'lit    = if  drop [char] # emit  ldp @ 8 + @ .n                  ldp @ 16 + ldp !
-  else dup 'branch = if  drop [char] b emit space ldp @ 8 + @ .n            ldp @ 16 + ldp !
-  else dup '0branch = if  drop [char] 0 emit [char] b emit space ldp @ 8 + @ .n  ldp @ 16 + ldp !
-  else  .cfaname                                                            ldp @ 8 +  ldp !
-  then then then then
-  reset space ;
-: draw-code ( -- )
-  lcur @ 0= if  exit  then
-  lcur @ cell+ ldp !
-  begin  ldp @ @ 'exit =  >r  ltok  r>  until ;
+\ --- small value helpers -----------------------------------------------------
+: max ( a b -- n )  2dup < if swap then drop ;
+: min ( a b -- n )  2dup > if swap then drop ;
+: >=  ( a b -- f )  < 0= ;
+: <=  ( a b -- f )  > 0= ;
+
+\ Decode a threaded body one cell at a time (mirrors `see`): lit/branch/0branch
+\ each carry an inline operand in the following cell, so they advance two cells.
+: dbl-cell? ( cell -- f )  dup 'lit = over 'branch = or swap '0branch = or ;
+: body-step ( a -- a' )    dup @ dbl-cell? if  16 +  else  8 +  then ;
+: body-emit ( a -- )                 \ print the token at body cell `a` (no advance)
+  dup @                              ( a cell )
+  dup 'exit    = if  2drop  [char] ; emit  exit  then
+  dup 'lit     = if  drop   [char] # emit  cell+ @ .n            exit  then
+  dup 'branch  = if  drop   [char] b emit space  cell+ @ .n      exit  then
+  dup '0branch = if  drop   [char] 0 emit [char] b emit space  cell+ @ .n  exit  then
+  nip  .cfaname ;
+
+\ --- responsive screen layout (re-measured each frame, so resize is handled) -
+\ Mirrors the Python ember's geometry: a tall left column (THREAD over OUTPUT)
+\ and a right column of stacked panels (DATA / CALL / DICT), an input box and a
+\ key/legend status row along the bottom.
+variable erows  variable ecols
+variable rx  variable rw  variable lw  variable mt  variable mb
+variable v-codeT variable v-codeH   variable v-outT  variable v-outH
+variable v-dataT variable v-dataH   variable v-retT  variable v-retH
+variable v-dictT variable v-dictH
+: measure ( -- )
+  term-size  ecols !  erows !
+  ecols @ 24 < if  80 ecols !  then        \ no winsize (e.g. a pipe): assume 80x24
+  erows @ 10 < if  24 erows !  then
+  28 rw !
+  ecols @ rw @ -  rx !                      \ right column: cols rx..ecols-1 (last col unused)
+  rx @ 2 -  lw !                            \ left column: cols 1..lw, gap at lw+1
+  2 mt !   erows @ 4 -  mb !
+  mb @ mt @ - 1 +                           ( mainH )
+  dup 3 /  5 max  v-outH !
+  dup v-outH @ -  v-codeH !
+  mt @ v-codeT !   v-codeT @ v-codeH @ +  v-outT !
+  dup 2 * 5 /  6 max  v-dataH !
+  dup v-dataH @ -  2 /  4 max  v-retH !
+  dup v-dataH @ -  v-retH @ -  v-dictH !
+  mt @ v-dataT !
+  v-dataT @ v-dataH @ +  v-retT !
+  v-retT @ v-retH @ +  v-dictT !
+  drop ;
 
 \ --- non-interactive trace (pipe-testable): print the live stack at each dispatch ---
 \ Proof we're reading the *real* engine: `5 ' square ember-trace` shows the data stack
@@ -93,37 +157,237 @@ variable ldp
     repeat
   then ;
 
-\ --- the dashboard -----------------------------------------------------------
-58 constant EBW   8 constant EBH               \ box: width, height
+\ --- the dashboard: a full-screen, Nord-coloured, multi-panel layout ---------
 variable lquit
 : .ember ( -- ) [char] e emit [char] m emit [char] b emit [char] e emit [char] r emit ;
-: .real  ( -- ) [char] r emit [char] e emit [char] a emit [char] l emit space
-                [char] e emit [char] n emit [char] g emit [char] i emit [char] n emit [char] e emit ;
-: .call  ( -- ) [char] c emit [char] a emit [char] l emit [char] l emit ;
 : .code  ( -- ) [char] c emit [char] o emit [char] d emit [char] e emit ;
+: .out   ( -- ) [char] o emit [char] u emit [char] t emit ;
 : .data  ( -- ) [char] d emit [char] a emit [char] t emit [char] a emit ;
+: .call  ( -- ) [char] c emit [char] a emit [char] l emit [char] l emit ;
+: .dict  ( -- ) [char] d emit [char] i emit [char] c emit [char] t emit ;
 : .ended ( -- ) [char] e emit [char] x emit [char] i emit [char] t emit [char] e emit [char] d emit ;
-: .stepk ( -- ) [char] s emit [char] p emit [char] a emit [char] c emit [char] e emit
-                [char] = emit [char] s emit [char] t emit [char] e emit [char] p emit ;
+: .step  ( -- ) [char] s emit [char] t emit [char] e emit [char] p emit ;
+: .idle  ( -- ) [char] i emit [char] d emit [char] l emit [char] e emit ;
+: .ready ( -- ) [char] r emit [char] e emit [char] a emit [char] d emit [char] y emit ;
+: .okp   ( -- ) [char] o emit [char] k emit [char] > emit space ;       \ the input prompt
+: .stepk ( -- ) [char] s emit [char] = emit [char] s emit [char] t emit [char] e emit [char] p emit ;
 : .runk  ( -- ) [char] r emit [char] = emit [char] r emit [char] u emit [char] n emit ;
 : .editk ( -- ) [char] e emit [char] = emit [char] e emit [char] d emit [char] i emit [char] t emit ;
 : .quitk ( -- ) [char] q emit [char] = emit [char] q emit [char] u emit [char] i emit [char] t emit ;
-: draw ( -- )
-  1 1 EBW EBH box
-  1 3 at  nord-cyan bold  .ember  etop @ if  [char] : emit space  etop @ .cfaname  then  reset
-          space space  nord-dim [char] # emit  lsteps @ .n  space space  .real reset
-  3 3 at  nord-dim .call reset  3 9 at  draw-call
-  4 3 at  nord-dim .code reset  4 9 at  alive @ if  draw-code  then
-  5 3 at  nord-dim .data reset  5 9 at  alive @ if  nord-orange .lstack reset
-                                              else  etop @ if  nord-dim .ended reset  then  then
-  7 3 at  nord-dim .stepk space space .runk space space .editk space space .quitk reset ;
+: .autok ( -- ) [char] a emit [char] = emit [char] a emit [char] u emit [char] t emit [char] o emit ;
+: panel ( top left w h -- )  nord-dim box reset ;     \ bordered, blanked-interior box
+: .tname ( cfa -- )                                   \ name a CFA; the anon thread reads as (line)
+  dup anonbuf = if  drop
+    [char] ( emit [char] l emit [char] i emit [char] n emit [char] e emit [char] ) emit
+  else  .cfaname  then ;
 
-\ --- live edit line (re-fork a child on each re-target) -----------------------
-\ `e` reads a line of Forth. Numbers push, words run, and: a line ending in a colon
-\ word re-targets to it (the rest is setup); otherwise the line just runs and the
-\ current word re-runs on the result. An unknown token flashes `<word> ?`.
-variable lbuf  88 allot   variable lblen   variable lp
-variable pa  variable pl  variable pf
+: draw-title ( -- )
+  1 1 atclr
+  nord-frost bold .ember reset
+  etop @ if  space [char] : emit space  nord-cyan                  \ the target: the typed line…
+    lblen @ 0 > if  lbuf lblen @ 32 min type  else  etop @ .tname  then  reset  then  \ …or its word
+  space space  nord-dim [char] # emit  lsteps @ .n  reset
+  alive @ if       1 ecols @ 5 - at  nord-green  .step  reset
+  else eready @ if  1 ecols @ 3 - at  nord-green  [char] o emit [char] k emit  reset
+  else etop @ if   1 ecols @ 7 - at  nord-dim    .ended  reset      \ child byed/crashed
+  else             1 ecols @ 5 - at  nord-dim    .idle  reset
+  then then then ;
+
+\ THREAD / code panel — the current word's body, one cell per row: the live cell
+\ (at %rsi-8) highlighted, executed cells dimmed; scrolls to keep it in view.
+variable th-a  variable th-i  variable th-live  variable th-n
+variable th-start  variable th-top  variable th-rows  variable th-r
+: thread-scan ( -- )                 \ count cells + find the live cell's index
+  0 th-n !  0 th-live !
+  lcur @ 0= if  exit  then
+  lcur @ cell+ th-a !  0 th-i !
+  begin
+    th-a @ r-rsi 8 - = if  th-i @ th-live !  then
+    th-a @ @ 'exit = if  th-i @ 1+ th-n !  exit  then
+    th-a @ body-step th-a !  th-i @ 1+ th-i !
+  0 until ;
+: thread-start ( -- )                \ scroll offset that keeps the live cell visible
+  th-live @  th-rows @ 2 / -  0 max
+  th-n @ th-rows @ -  0 max  min  th-start ! ;
+: thread-row ( -- )                  \ draw the cell at th-a on its screen row
+  th-top @  th-i @ th-start @ -  +  th-r !
+  th-r @ 2 at
+  th-a @ r-rsi 8 - = if    nord-yellow bold  226 150 184 u8    \ ▸ the live cell (IP)
+  else th-a @ r-rsi 8 - < if  nord-dim   space                 \ already executed: dim
+  else  nord-fg  space  then then                              \ upcoming
+  th-r @ 4 at  th-i @ .n
+  th-r @ 7 at  th-a @ r-rsi 8 - = if  reverse  then            \ exec highlight: fill the token
+  th-a @ body-emit  reset ;
+: draw-thread ( top rows -- )
+  th-rows !  th-top !
+  lcur @ 0= if  exit  then
+  thread-scan  thread-start
+  lcur @ cell+ th-a !  0 th-i !
+  begin
+    th-i @ th-start @ >=  th-i @ th-start @ th-rows @ + <  and  if  thread-row  then
+    th-a @ @ 'exit = if  exit  then
+    th-a @ body-step th-a !  th-i @ 1+ th-i !
+  0 until ;
+
+\ DATA panel — the child's live data stack, peeked from the traced process. The
+\ Forth top of stack (at %rsp) sits at the top of the panel, highlighted.
+variable ds-rows  variable ds-depth  variable ds-j  variable ds-row  variable ds-top
+: stack-val ( j -- v )               \ the j-th stack item from the bottom (1 = bottom)
+  alive @ if  child @  sp0 rot cells -  peekdata          \ live child: peek it
+  else  1- cells esaved + @  then ;                       \ resting: the saved snapshot
+: draw-stack ( top rows -- )
+  ds-rows !  ds-top !
+  alive @ if  sp0 r-rsp - 8 /  else  eready @ if  endepth @  else  0  then  then  ds-depth !
+  ds-depth @ ds-j !  0 ds-row !
+  begin  ds-j @ 0 >  ds-row @ ds-rows @ <  and  while
+    ds-top @ ds-row @ +  rx @ 2 + at
+    ds-row @ 0= if  nord-orange bold  pulse-s @ alive @ and if  reverse  then  else  nord-fg  then
+    ds-j @ stack-val  .n
+    ds-row @ 0= if  space space [char] t emit [char] o emit [char] p emit  then
+    reset
+    ds-j @ 1- ds-j !  ds-row @ 1+ ds-row !
+  repeat ;
+
+\ CALL panel — the inferred call path (enclosing colon words, then the current).
+variable cf-rows  variable cf-i  variable cf-row  variable cf-top
+: draw-frames ( top rows -- )
+  cf-rows !  cf-top !
+  lcur @ 0= if  exit  then
+  0 cf-i !  0 cf-row !
+  begin  cf-i @ lcn @ <  cf-row @ cf-rows @ <  and  while
+    cf-top @ cf-row @ + rx @ 2 + at  nord-purple
+    lcstk cf-i @ cells + @  .tname  reset
+    cf-i @ 1+ cf-i !  cf-row @ 1+ cf-row !
+  repeat
+  cf-row @ cf-rows @ < if
+    cf-top @ cf-row @ + rx @ 2 + at  nord-purple bold  pulse-h @ if  reverse  then
+    lcur @ .tname  reset
+  then ;
+
+\ DICT panel — the live dictionary (newest first); colon words highlighted. The
+\ tooling block (term/ptrace/ember, between `prelude-top` and `ember-top`) is
+\ hidden, so this shows only the kernel + prelude + words you've defined.
+variable di-h  variable di-cx  variable di-cy  variable di-bot
+variable di-maxx  variable di-len  variable ember-top
+: dict-name   ( -- a n )  di-h @ 9 +  di-h @ 8 + c@ 127 and ;
+: dict-colon? ( -- f )    di-h @ 9 +  di-h @ 8 + c@ 127 and  +  @ 'docol = ;
+: dict-show?  ( -- f )    di-h @ prelude-top @ <=   di-h @ ember-top @ >   or ;
+: draw-dict ( top rows -- )
+  over + di-bot !  di-cy !
+  rx @ 2 + di-cx !
+  rx @ rw @ + 2 - di-maxx !
+  latest di-h !
+  begin  di-h @  di-cy @ di-bot @ <  and  while
+    dict-show? if
+      di-h @ 8 + c@ 127 and  di-len !
+      di-cx @ di-len @ + 1 +  di-maxx @ >  if         \ wrap to the next row
+        rx @ 2 + di-cx !  di-cy @ 1+ di-cy !
+      then
+      di-cy @ di-bot @ < if
+        di-cy @ di-cx @ at
+        dict-colon? if  nord-cyan  else  nord-dim  then
+        dict-name type  reset
+        di-cx @ di-len @ + 1 +  di-cx !
+      then
+    then
+    di-h @ @ di-h !
+  repeat ;
+
+\ OUTPUT panel — the traced child's stdout, piped here instead of to our terminal.
+\ launch points the child's fd 1/2 at a pipe; we drain it non-blocking each frame into
+\ `obuf` and show the tail. The pipe is O_NONBLOCK on both ends on purpose: a full pipe
+\ makes the child's write lose bytes rather than block — blocking would deadlock the
+\ single-stepper (parent waiting in pwait while the child waits to write).
+33   constant SYS_dup2     3 constant SYS_close     293 constant SYS_pipe2
+2048 constant O_NONBLOCK
+variable pipebuf  8 allot
+variable opipe-r  -1 opipe-r !   variable opipe-w
+: dup2  ( old new -- )  0 0 0 0 SYS_dup2  syscall6 drop ;
+: close ( fd -- )       0 0 0 0 0 SYS_close syscall6 drop ;
+: open-opipe ( -- )                      \ a fresh pipe; stash both fds (close any prior reader)
+  opipe-r @ 0 > if  opipe-r @ close  then
+  pipebuf O_NONBLOCK 0 0 0 0 SYS_pipe2 syscall6 drop
+  pipebuf u16@  opipe-r !   pipebuf 4 + u16@  opipe-w ! ;
+
+variable obuf  4096 allot   variable olen   variable rdbuf 256 allot
+4000 constant OCAP
+variable oj  variable oi  variable ofirst  variable owrows  variable owtop
+variable lstarts  64 cells allot   variable nlines
+: out-reset ( -- )  0 olen ! ;
+: out-read  ( -- got )  opipe-r @ rdbuf 256 0 syscall3 ;   \ read(rfd,256) non-blocking
+: out-append ( addr got -- )             \ append a chunk; on overflow keep only the newest
+  olen @ over + OCAP > if  0 olen !  then
+  0 oi !
+  begin  oi @ over <  while
+    over oi @ + c@   obuf olen @ + c!
+    olen @ 1+ olen !  oi @ 1+ oi !
+  repeat  2drop ;
+: out-drain ( -- )                        \ pull everything the child has printed (non-blocking)
+  opipe-r @ 0 < if  exit  then
+  begin  out-read  dup 0 >  while  rdbuf swap out-append  repeat  drop ;
+: out-split ( -- )                        \ index obuf's line starts into lstarts[]/nlines
+  1 nlines !  0 lstarts !  0 oj !
+  begin  oj @ olen @ <  while
+    obuf oj @ + c@ 10 = if
+      nlines @ 64 < if  oj @ 1+  lstarts nlines @ cells + !  nlines @ 1+ nlines !  then
+    then
+    oj @ 1+ oj !
+  repeat ;
+: line-start ( i -- off )  lstarts swap cells + @ ;
+: out-line ( i -- start len )             \ the i-th line's offset + length (\n excluded)
+  dup line-start  swap 1+
+  dup nlines @ < if  line-start over - 1-  else  drop olen @ over -  then ;
+: draw-out ( top rows -- )
+  out-drain
+  olen @ 0= if                            \ nothing printed yet: show a one-word status
+    drop 3 at  nord-green
+    alive @ if  .step space lsteps @ .n
+    else eready @ if  [char] o emit [char] k emit
+    else etop @ if  .ended  else  .ready  then then then
+    reset  exit
+  then
+  out-split  owrows !  owtop !
+  nlines @ owrows @ -  0 max  ofirst !  ofirst @ oj !
+  begin  oj @ nlines @ <  while
+    owtop @  oj @ ofirst @ -  +  3 at  nord-green
+    oj @ out-line  lw @ 4 - min            ( start len )
+    swap obuf +  swap  type  reset
+    oj @ 1+ oj !
+  repeat ;
+
+: draw-input ( -- )
+  erows @ 3 -  1  ecols @ 1 -  3  panel
+  erows @ 2 -  3 at  nord-green bold  .okp  reset ;
+
+: draw-status ( -- )
+  erows @ 1 at  cleol
+  nord-dim space .stepk space space .autok space space .runk
+  space space .editk space space .quitk reset ;
+
+: draw ( -- )
+  measure  draw-title
+  v-codeT @ 1 lw @ v-codeH @  panel
+  v-codeT @ 3 at  nord-cyan .code reset
+  v-codeT @ 1+  v-codeH @ 2 -  draw-thread
+  v-outT @ 1 lw @ v-outH @  panel
+  v-outT @ 3 at  nord-green .out reset
+  v-outT @ 1+  v-outH @ 2 -  draw-out
+  v-dataT @ rx @ rw @ v-dataH @  panel
+  v-dataT @ rx @ 2 + at  nord-orange .data reset
+  v-dataT @ 1+  v-dataH @ 2 -  draw-stack
+  v-retT @ rx @ rw @ v-retH @  panel
+  v-retT @ rx @ 2 + at  nord-purple .call reset
+  v-retT @ 1+  v-retH @ 2 -  draw-frames
+  v-dictT @ rx @ rw @ v-dictH @  panel
+  v-dictT @ rx @ 2 + at  nord-cyan .dict reset
+  v-dictT @ 1+  v-dictH @ 2 -  draw-dict
+  draw-input  draw-status ;
+
+\ --- live edit line — a REPL: each line you enter is compiled and stepped --------
+\ `e` reads a line of Forth, compiles it into an anonymous thread (with the resting
+\ stack re-pushed in front), and steps it — so `5 square`, `4 4 +`, or just `3` all
+\ work, and the result carries to the next line. An unknown token flashes `<word> ?`.
+variable lp   variable pa  variable pl
 : clear-stack ( -- )  begin  depth 0 >  while  drop  repeat ;
 : lc@    ( -- c )  lbuf lp @ + c@ ;
 : lc-ws? ( -- f )  lc@ 32 =  lc@ 9 =  or  lc@ 10 =  or ;
@@ -131,22 +395,25 @@ variable pa  variable pl  variable pf
   begin  lp @ lblen @ <  lc-ws?     and  while  lp @ 1+ lp !  repeat
   lbuf lp @ +  0
   begin  lp @ lblen @ <  lc-ws? 0=  and  while  1+  lp @ 1+ lp !  repeat ;
-: last-token ( -- addr len )                   \ the LAST token of lbuf (0 0 if none)
-  0 lp !  0 pa !  0 pl !
-  begin  token dup  while  pl !  pa !  repeat  2drop  pa @ pl @ ;
-: colon? ( addr len -- f )  find  dup if  @ 'docol =  else  drop 0  then ;
-: known? ( addr len -- f )  2dup number nip  >r  find  r>  or ;
-: setup-token ( addr len -- )                  \ run one token: number push / word execute
-  2dup number if  >r 2drop r>
-  else  drop  find  dup if  execute  else  drop  then  then ;
-: run-all ( -- )  0 lp !  begin  token dup  while  setup-token  repeat  2drop ;
-: run-setup ( -- target )                      \ run every token but the last; the last = target
-  0 lp !  0 pf !
-  begin  token dup  while
-    pf @ if  >r >r  pa @ pl @ setup-token  r> r>  then    \ flush prev; keep this token off the stack
-    pl !  pa !  -1 pf !
+\ Compile the whole line into an anonymous colon thread at `anonbuf`: a docol codeword
+\ cell, then each token (a number -> `lit n`, a word -> its CFA), then `exit`. Returns
+\ the thread's CFA (= anonbuf) so `launch`/`execute` can run it, or 0 if a token was
+\ unknown (its addr/len is left in pa/pl for the flash).
+variable acp                                   \ compile pointer (cell index into anonbuf)
+variable abad                                  \ -1 once an unknown token is seen
+: a, ( x -- )  anonbuf acp @ cells + !  acp @ 1+ acp ! ;
+: compile-line ( -- cfa )
+  0 acp !  0 abad !  'docol a,
+  0 ei !  begin  ei @ endepth @ <  while        \ re-push the saved REPL stack first
+    'lit a,  esaved ei @ cells + @ a,  ei @ 1+ ei !  repeat
+  0 lp !
+  begin  token dup  while                      ( addr len )
+    2dup number if   'lit a,  a,  2drop         \ a number -> lit n
+    else  drop  2dup find dup if   a,  2drop     \ a defined word -> its CFA
+    else  drop  pl !  pa !  -1 abad !  then then \ unknown -> remember it, mark bad
   repeat  2drop
-  pf @ if  pa @ pl @ find  else  0  then ;
+  'exit a,
+  abad @ if  0  else  anonbuf  then ;
 : read-line ( -- )                             \ read+echo a line into lbuf; Enter ends it
   0 lblen !
   begin
@@ -161,34 +428,61 @@ variable pa  variable pl  variable pf
   0 until ;
 
 \ launch — fork a child running execute(cfa) on the args beneath it, and trace it.
+\ The child's fd 1/2 are pointed at a pipe so any printing the word does is captured
+\ for the OUTPUT panel instead of scribbling over our TUI.
 : launch ( args cfa -- )
   dup etop !
+  out-reset  open-opipe
   fork dup 0= if
-    drop  traceme  getpid SIGSTOP kill  execute  bye
+    drop
+    opipe-w @ 1 dup2   opipe-w @ 2 dup2       \ child: stdout/stderr -> the pipe
+    opipe-r @ close    opipe-w @ close
+    traceme  getpid SIGSTOP kill  execute  bye
   else
     child !  clear-stack                      \ the parent's copy; the child kept its own
-    -1 alive !  0 lsteps !  0 lcur !  0 lcn !
+    opipe-w @ close                           \ parent only reads the pipe
+    -1 alive !  -1 e-rest !  0 eready !  0 endepth !  0 lsteps !  0 lcur !  0 lcn !
+    0 prev-top !  0 prev-dep !  0 prev-cur !  0 pulse-s !  0 pulse-h !
     pwait drop
     alive @ if  l-step  then                  \ advance to the first dispatch boundary
   then ;
 : kill-child ( -- )  alive @ if  child @ SIGKILL kill  pwait drop  then ;
-: eline ( -- )  7 3 at  EBW 5 - spaces  7 3 at ;   \ clear the status row inside the box
+: eline ( -- )  erows @ 2 - 7 at  ecols @ 9 - spaces  erows @ 2 - 7 at ;  \ clear past the "ok> " prompt
 : edit-target ( -- )
-  eline  [char] > emit space  show-cursor
+  eline  show-cursor
   read-line  hide-cursor
-  last-token  2dup colon? if                       ( addr len )  \ ends in a colon word: step it
-    2drop  kill-child  clear-stack  run-setup  launch
-  else 2dup known?  etop @ 0= 0=  and if            ( addr len )  \ number/primitive + a current word:
-    2drop  kill-child  clear-stack  run-all  etop @  launch        \   re-run current on the result
-  else                                              ( addr len )  \ unknown / nothing to re-run: flash
-    eline  nord-yellow  type  space [char] ? emit  reset  key drop
-  then then ;
+  lblen @ 0= if  exit  then                        \ empty line: nothing to do
+  clear-stack  compile-line  dup if                ( cfa )  \ compile the line + saved stack
+    kill-child  launch                             \   and step it
+  else  drop                                       \ an unknown token: flash it, keep resting
+    eline  nord-yellow  pa @ pl @ type  space [char] ? emit  reset  key drop
+  then ;
+
+\ --- autoplay (a) — auto-step on a timer until the word exits or a key lands --
+\ The frame clock is `key`'s read timeout (raw-timed): each tick steps once and
+\ redraws. +/- change the speed; q/Esc quit; any other key drops back to manual.
+variable auto   variable speed   3 speed !       \ tenths of a second per step
+: autoplay ( -- )
+  -1 auto !  speed @ raw-timed
+  begin
+    alive @ if  l-step  then  draw
+    key  dup 0< if  drop                                       \ timed out: step again
+    else dup [char] + = if  drop  speed @ 1- 1 max speed !  speed @ raw-timed
+    else dup [char] - = if  drop  speed @ 1+        speed !  speed @ raw-timed
+    else dup [char] q = if  drop  -1 lquit !  0 auto !
+    else dup 27 =       if  drop  -1 lquit !  0 auto !         \ Esc
+    else  drop  0 auto !                                       \ any other key: stop autoplay
+    then then then then then
+    auto @  alive @  and  0=
+  until
+  raw-poll ;
 
 \ --- the event loop ----------------------------------------------------------
 : ember ( ? -- )                         \ <args> ' <word> ember  to step a word, or bare
   raw-on  hide-cursor  clear  0 lquit !   \ `ember` to boot into the edit prompt and choose one
+  0 endepth !  0 lblen !                  \ start with an empty REPL stack
   depth 0 > if  launch                    \ a target (CFA) on the stack -> step it
-  else  0 etop ! 0 alive ! 0 lcur ! 0 lcn ! 0 lsteps !  draw  edit-target  then   \ bare -> prompt
+  else  0 etop ! 0 alive ! 0 lcur ! 0 lcn ! 0 lsteps ! -1 eready !  draw  edit-target  then  \ bare -> prompt
   begin
     draw
     key                                          ( c )
@@ -197,10 +491,16 @@ variable pa  variable pl  variable pf
     else dup 27 =       if  drop  -1 lquit !       \ Esc
     else dup [char] e = if  drop  edit-target      \ type a new target
     else dup [char] r = if  drop  erun             \ run to the end
+    else dup [char] a = if  drop  autoplay         \ autoplay on a timer
     else dup [char] s = over 32 = or if  drop  alive @ if  l-step  then
     else drop
-    then then then then then then
+    then then then then then then then
     lquit @
   until
   kill-child
   show-cursor  reset  raw-off  cr  bye ;
+
+\ Close the tooling block: every word defined since `prelude-top` (term/ptrace/
+\ this file) is ember's own plumbing, hidden from the dict panel; words newer than
+\ this — the ones you define at the prompt — are shown.
+latest ember-top !

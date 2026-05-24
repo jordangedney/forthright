@@ -84,19 +84,29 @@ assembly is a throwaway bootstrap.
   could regenerate. Hard, beautiful, and the natural terminus of "everything in fr."
 - A generic **`syscall` primitive** — **DONE** (`syscall6` + `key`), and on top of it
   `term.fr` (ANSI + termios cbreak + box drawing), **`ptrace.fr` — DONE** (fork/ptrace/
-  single-step/peek), and **`ember.fr` — DONE**: the self-hosted explorer, a Nord-coloured
-  boxed `call`/`code`/`data` dashboard driving the **real** engine under ptrace (it forks a
-  child, single-steps it, infers the call path from the dispatch stream, peeks the live data
-  stack). It runs with no Python (`./ember-fr` is a one-line shell exec), has a live edit line
-  (`e` re-forks on a new target) and run-to-end (`r`). The kernel also **loads source from
-  argv** + reassembles tokens/comments across refills. (An earlier *simulator* ember.fr was
-  dropped once the real-engine version existed — it was redundant and could drift; the
-  prelude's `trace` is the lightweight model. A dictionary panel was tried and dropped — it
-  just showed the explorer's own plumbing.) ember.fr is at parity with the Python ember's
-  *core*; the Python one keeps only polish. Left to close even that:
-  - An **OUTPUT panel** (capture what a stepped word prints), autoplay + speed (`a`/`+`/`-`),
-    and coalescing per-byte writes into one `type`/frame (a perf tweak — flicker is already
-    gone via in-place redraw; wants `s"`-style string building or a scratch buffer + `c!`).
+  single-step/peek), and **`ember.fr` — DONE**: the self-hosted explorer, a **full-screen,
+  responsive** Nord dashboard (`measure` re-reads `term-size` each frame) driving the **real**
+  engine under ptrace. It forks a child, single-steps it, and lays out the same panels as the
+  Python ember: `code` (the word's body, one cell per row, live cell highlighted / executed
+  dimmed, scrolls), `data` (the peeked stack, top first), `call` (the inferred path), `dict`
+  (the live dictionary — its own term/ptrace/ember plumbing filtered out via the `prelude-top`/
+  `ember-top` markers, so only kernel+prelude+user words show), an `out` status line, an input
+  box, and a key row. Keys: `s`/space step, **`a` autoplay** (`+`/`-` speed, clocked by a
+  `key` read timeout via VMIN/VTIME), `r` run-to-end, `e` the live edit line (**a REPL** — each
+  line is compiled with the resting stack re-pushed in front and stepped; at the top-level EXIT
+  it snapshots the stack and rests instead of exiting, so `5 5 5 +` rests at `10 5` and `3 *`
+  continues to `30 5`), `q`/`Esc` quit. It runs with no Python (`./ember-fr` is a one-line shell exec); the
+  kernel also **loads source from argv** + reassembles tokens/comments across refills. (An
+  earlier *simulator* ember.fr was dropped once the real-engine version existed; the prelude's
+  `trace` is the lightweight model.) ember.fr now matches the Python ember's panels, keys,
+  *and* behavior — including the **OUTPUT panel — DONE**: `launch` points the child's fd 1/2
+  at an O_NONBLOCK pipe and the parent drains it non-blocking each frame into a scrollback
+  buffer, so a word that prints shows up in the panel instead of corrupting the TUI. (Both
+  pipe ends are O_NONBLOCK on purpose: a blocking write end would deadlock the single-stepper.)
+  So the self-hosted explorer is at full parity; the Python `ember` is now just a reference UI.
+  Left to close (polish, not parity):
+  - A perf tweak: coalesce the per-byte `emit` writes into one `type`/frame (flicker is
+    already gone via in-place redraw; wants `s"`-style string building or a scratch buffer).
 
 ## Cross-cutting: the corpus
 

@@ -35,6 +35,10 @@ check "ember.fr: steps into colon (cube 3)"     "$( ( $LT; echo ": cube dup squa
 check "ember.fr: pty stepper 5->25"     "$(timeout 30 ./ember-pty --selftest)"        "EMBER PASS"
 check "ember.fr: bare boots to prompt"  "$(timeout 30 ./ember-pty --prompt-selftest)" "EMBER PROMPT PASS"
 check "ember.fr: live edit re-targets"  "$(timeout 30 ./ember-pty --edit-selftest)"   "EMBER EDIT PASS"
+check "ember.fr: bare expr (4 4 +)"     "$(timeout 30 ./ember-pty --expr-selftest)"   "EMBER EXPR PASS"
+check "ember.fr: autoplay runs to rest"  "$(timeout 30 ./ember-pty --auto-selftest)"   "EMBER AUTO PASS"
+check "ember.fr: captures stdout (OUT)"  "$(timeout 30 ./ember-pty --out-selftest)"    "EMBER OUT PASS"
+check "ember.fr: REPL stack persists"    "$(timeout 30 ./ember-pty --repl-selftest)"   "EMBER REPL PASS"
 check "ember (python): model"           "$(./ember --selftest)"                      "ALL PASS"
 check "ember (python): native ptrace"   "$(timeout 60 ./ember --native-selftest)"    "NATIVE PASS"
 
