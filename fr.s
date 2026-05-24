@@ -715,6 +715,17 @@ code_RAT:
 	push %rax
 	NEXT
 
+# sys — push the address of a table of the headerless engine CFAs, so a Forth
+# `see` can recognise them: [ docol, lit, exit, branch, 0branch ].
+h_SYS:	.quad h_RAT
+	.byte 3
+	.ascii "sys"
+SYS:	.quad code_SYS			# ( -- addr )
+code_SYS:
+	mov $systab, %rax
+	push %rax
+	NEXT
+
 # ===========================================================================
 # Outer interpreter helpers (register-passing; never touch the data stack).
 
@@ -957,7 +968,8 @@ errmsg:	.ascii " ?\n"
 	.equ errmsg_len, . - errmsg
 
 	.data
-var_latest: .quad h_RAT			# newest dictionary entry (head of FIND)
+var_latest: .quad h_SYS			# newest dictionary entry (head of FIND)
+systab:     .quad docol, LIT, EXIT, BRANCH, ZBRANCH	# headerless engine CFAs (for `see`)
 var_state:  .quad 0			# 0 = interpret, 1 = compile
 var_here:   .quad dict_space		# next free byte for new definitions
 inbuf_len:  .quad 0			# valid bytes currently in inbuf

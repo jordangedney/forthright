@@ -65,7 +65,7 @@ Build and run (it's a REPL — reads Forth from stdin until EOF):
 The **kernel** (raw `./fr`) knows only the irreducible primitives: `dup drop swap`,
 memory `@ ! c@ c! here allot`, return stack `>r r> r@`, arithmetic `+ - * / mod`,
 `= <`, `and or`, I/O `. emit type word find number s= [char]`, `variable constant
-latest bye`, and the compiling words `: ; if else then begin until while repeat \ (`.
+latest sys bye`, and the compiling words `: ; if else then begin until while repeat \ (`.
 Load **prelude.fr** for the rest (`over rot nip 2dup 2drop negate 1+ 1- cells cell+
 > 0= , char cr space square u.`). Numbers (incl. negatives) push themselves; unknown
 tokens echo back with `?`.
@@ -155,6 +155,10 @@ Python spec it follows.
       can be written in fr, it lives here, not in fr.s — which is now down to ~2.9 KB
       of irreducible primitives + the parse/compile/IO bootstrap. Load with
       `( cat prelude.fr prog.fr ) | ./fr`. (anvil.fr builds on it.)
+- [x] **`see`** (prelude.fr) — a self-hosted thread decoder: it walks fr's own
+      dictionary (via `latest`) and the kernel's `sys` table of engine CFAs to
+      disassemble any definition. `see square` → `dup * ;`; `see abs` →
+      `dup 0 < 0b 16 negate ;`. fr introspecting itself. (Plus `.n`, signed print.)
 - [x] **anvil.fr**, self-hosted: a stack-effect verifier written *in fr* (~110
       lines). `check{ … }` infers a phrase's `( in -- out )`; `def name ( decl )
       body ;` infers + registers a word's effect (so words compose) and flags any

@@ -18,7 +18,10 @@ holds two pieces:
   `over`/`rot` use `>r`/`r>`). The rule: **if a word can be defined in fr, it goes in
   `prelude.fr`, not in `fr.s`** (the kernel is ~2.9 KB of irreducible primitives + the
   parse/compile/IO bootstrap). Load it before any program that needs it:
-  `( cat prelude.fr yourprog.fr ) | ./fr`.
+  `( cat prelude.fr yourprog.fr ) | ./fr`. It also defines **`see`** — a self-hosted
+  thread decoder (`see square` → `dup * ;`) that walks the dictionary via `latest` and
+  the kernel's `sys` table (which exposes the headerless engine CFAs docol/lit/exit/
+  branch/0branch). This is the fr-native analog of ember's introspection.
 - **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted), built on the
   prelude. `check{ … }`
   infers a phrase's `( in -- out )` by abstract stack simulation; `def name ( decl ) body ;`

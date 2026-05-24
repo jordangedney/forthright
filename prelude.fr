@@ -50,6 +50,44 @@ variable up
   until
   drop
   up @   ubuf 32 + over -   type ;
+: .n ( n -- )   dup 0 < if  [char] - emit  negate  then  u. ;   \ signed, no newline
 
 \ --- handy demo word ---------------------------------------------------------
 : square ( n -- n*n )  dup * ;
+
+\ --- see: a self-hosted thread decoder (fr disassembling itself) -------------
+\ Names for the headerless engine words, from the kernel's `sys` table:
+sys      @  constant 'docol
+sys 8 +  @  constant 'lit
+sys 16 + @  constant 'exit
+sys 24 + @  constant 'branch
+sys 32 + @  constant '0branch
+
+variable target  variable found  variable hp
+: .cfaname ( cfa -- )           \ print the name of the word whose CFA this is
+  target !  latest hp !  0 found !
+  begin  hp @ 0=  found @  or  0=  while       \ while hp != 0 and not yet found
+    hp @ 8 + c@ 127 and  hp @ 9 + +  target @ =  \ this header's CFA == target?
+    if    hp @ 9 +   hp @ 8 + c@ 127 and   type   -1 found !
+    else  hp @ @ hp !  then                     \ else follow the link
+  repeat
+  found @ 0= if [char] ? emit then ;
+
+variable sp  variable done
+: see ( -- )                    \ see <word> — print its threaded definition
+  word find  dup 0= if  drop [char] ? emit cr  exit  then     ( cfa )
+  dup @ 'docol =  0= if          \ codeword isn't docol -> it's a primitive
+    drop  [char] p emit [char] r emit [char] i emit [char] m emit cr  exit
+  then
+  8 + sp !  0 done !             \ body begins one cell after the CFA
+  begin
+    sp @ @                       ( cell )
+    dup 'exit    = if  drop  [char] ; emit                       -1 done !
+    else dup 'lit    = if  drop  sp @ 8 + @ .n space   sp @ 16 + sp !
+    else dup 'branch = if  drop  [char] b emit space sp @ 8 + @ .n space sp @ 16 + sp !
+    else dup '0branch = if drop [char] 0 emit [char] b emit space sp @ 8 + @ .n space sp @ 16 + sp !
+    else  .cfaname space  sp @ 8 + sp !
+    then then then then
+    done @
+  until
+  cr ;
