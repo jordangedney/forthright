@@ -135,6 +135,27 @@ outputs `= inputs+hgt`. `def` registers the inferred effect (so words compose) a
 flags any disagreement with the declared `( … -- … )`. `anvil-reference.py` is the
 Python spec it follows.
 
+## Forging it: forge.fr (generate → check → repair, self-hosted)
+
+`forge.fr` closes the loop the whole project is about — **in fr itself**. A
+breadth-first generator builds candidate threaded bodies; the self-hosted `anvil`
+(`check-body`) verifies each one's stack effect; shape-valid candidates are run
+(`execute`) on examples to confirm intent; the first passing both is "forged":
+
+    ( cat prelude.fr anvil.fr forge.fr; echo forge ) | ./fr
+
+      1+ ?
+      dup + ?          ← right shape ( n -- n ), wrong value
+      dup * <=         ← forged: right shape AND 5→25, 3→9
+
+(`?` = anvil approved the shape but the value test failed; `<=` = forged.) The
+generator is a search standing in for an AI; the point is the gate — nothing is
+accepted unless **Forth-checking-Forth** approves the stack effect first, and
+anvil checks *shape* while `execute` checks *intent*. The whole pipeline runs with
+nothing but fr: it writes, verifies, and forges its own code. This needed three
+new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checking a
+*compiled body* by CFA, not stdin). `forge-reference.py` is the Python spec.
+
 ## Status
 
 - [x] Inner interpreter (ITC NEXT, docol/EXIT), data + return stacks
@@ -170,5 +191,9 @@ Python spec it follows.
       arms must leave the same net effect or it's flagged `br!` (an `if…then` with
       no `else` must be height-neutral). The thesis made literal — the redundancy
       Forth lacks, in a trust base small enough to audit. (`anvil-reference.py` = spec.)
-- [ ] beyond anvil: the generate → check → repair loop (AI writes fr, anvil
-      verifies, repeat) — the broader pipeline the whole thesis is about
+- [x] **forge.fr** — the generate → check → repair loop, *self-hosted in fr*: a
+      generator builds candidate bodies, the self-hosted `anvil` (`check-body`)
+      verifies each stack effect, shape-valid candidates are `execute`d on examples,
+      and the first passing both is "forged". Needed `execute` (kernel), `'`
+      (prelude), and anvil checking *compiled bodies* by CFA. fr writes, verifies,
+      and forges its own code. (`forge-reference.py` is the Python spec.)

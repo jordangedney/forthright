@@ -51,6 +51,7 @@ variable up
   drop
   up @   ubuf 32 + over -   type ;
 : .n ( n -- )   dup 0 < if  [char] - emit  negate  then  u. ;   \ signed, no newline
+: '  ( -- cfa )   word find ;                                    \ tick: next word's CFA
 
 \ --- handy demo word ---------------------------------------------------------
 : square ( n -- n*n )  dup * ;

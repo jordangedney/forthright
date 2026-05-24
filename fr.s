@@ -726,6 +726,14 @@ code_SYS:
 	push %rax
 	NEXT
 
+h_EXECUTE: .quad h_SYS
+	.byte 7
+	.ascii "execute"
+EXECUTE: .quad code_EXECUTE		# ( cfa -- )  run the word with this CFA
+code_EXECUTE:
+	pop %rax
+	jmp *(%rax)			# its NEXT/EXIT returns to our caller
+
 # ===========================================================================
 # Outer interpreter helpers (register-passing; never touch the data stack).
 
@@ -968,7 +976,7 @@ errmsg:	.ascii " ?\n"
 	.equ errmsg_len, . - errmsg
 
 	.data
-var_latest: .quad h_SYS			# newest dictionary entry (head of FIND)
+var_latest: .quad h_EXECUTE		# newest dictionary entry (head of FIND)
 systab:     .quad docol, LIT, EXIT, BRANCH, ZBRANCH	# headerless engine CFAs (for `see`)
 var_state:  .quad 0			# 0 = interpret, 1 = compile
 var_here:   .quad dict_space		# next free byte for new definitions

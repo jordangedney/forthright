@@ -34,8 +34,9 @@ variable dc                           \ emits char
 variable ein   variable eout          \ .eff counts
 variable din   variable dout variable has-decl
 variable cons-i variable prod-i       \ inferred effect of a def
-variable rg-c  variable rg-p          \ register cons/prod
+variable rg-c  variable rg-p  variable rg-len   \ register cons/prod/name-len
 variable name-a variable name-n       \ a def's name
+variable kcfa  variable bp2           \ check-body: cfa key, body pointer
 
 : t.str ( -- addr len )  tok-a @ tok-n @ ;   \ (space, cr, 1+, 2dup… come from prelude.fr)
 
@@ -60,12 +61,16 @@ variable name-a variable name-n       \ a def's name
     cn-a @ c@  np @ c!
     cn-a @ 1+ cn-a !   np @ 1+ np !   cn-n @ 1- cn-n !
   repeat ;
-: register ( addr len cons prod -- )             \ add a name -> effect entry
-  rg-p !  rg-c !
-  2dup copy-name  ,e                             \ name-ptr
-  swap drop  ,e                                  \ name-len
-  rg-c @ ,e   rg-p @ ,e ;                         \ cons, prod
-: prim ( cons prod -- )  rg-p ! rg-c !  word  rg-c @ rg-p @  register ;  \ name follows
+: register ( cfa addr len cons prod -- )         \ entry: [cfa, name-ptr, len, cons, prod]
+  rg-p !  rg-c !  rg-len !                        \ ( cfa addr )
+  rg-len @ copy-name                              \ ( cfa ptr )
+  swap ,e  ,e                                     \ cfa, name-ptr
+  rg-len @ ,e   rg-c @ ,e   rg-p @ ,e ;            \ len, cons, prod
+: prim ( cons prod -- )                          \ name follows; record its CFA too
+  rg-p ! rg-c !
+  word 2dup find                                  \ ( addr len cfa )
+  rot rot                                         \ ( cfa addr len )
+  rg-c @ rg-p @  register ;
 
 \ --- the stack-effect simulation ---------------------------------------------
 : apply ( cons prod -- )
@@ -78,14 +83,35 @@ variable name-a variable name-n       \ a def's name
   q-n !  q-a !  0 ffound !
   tbase @
   begin  dup tp @ <  while
-    dup @  over 8 + @  q-a @ q-n @  s=  if
-      dup 16 + @ fcons !
-      dup 24 + @ fprod !
+    dup 8 + @  over 16 + @  q-a @ q-n @  s=  if    \ entry: name-ptr@+8, len@+16
+      dup 24 + @ fcons !
+      dup 32 + @ fprod !
       -1 ffound !
     then
-    32 +
+    40 +
   repeat  drop
   ffound @  if  fcons @ fprod @ -1  else  0 0 0  then ;
+
+: tlookup-cfa ( cfa -- cons prod flag )          \ look up by compiled CFA (entry@+0)
+  kcfa !  0 ffound !
+  tbase @
+  begin  dup tp @ <  while
+    dup @  kcfa @ =  if
+      dup 24 + @ fcons !
+      dup 32 + @ fprod !
+      -1 ffound !
+    then
+    40 +
+  repeat  drop
+  ffound @  if  fcons @ fprod @ -1  else  0 0 0  then ;
+
+: check-body ( body -- in out )                  \ simulate a compiled straight-line body
+  bp2 !  0 hgt !  0 lo !
+  begin  bp2 @ @  dup 'exit =  0=  while           \ until the EXIT cell
+    tlookup-cfa  if  apply  else  2drop  then
+    bp2 @ 8 + bp2 !
+  repeat  drop
+  lo @ negate   lo @ negate hgt @ +  ;             \ ( inputs outputs )
 
 \ --- token predicates (operate on the current tok-a/tok-n) -------------------
 : read-tok ( -- )  word tok-n ! tok-a ! ;
@@ -166,7 +192,7 @@ variable name-a variable name-n       \ a def's name
   read-tok  lp? if  parse-decl  read-tok  then
   begin  semi? 0=  while  classify  read-tok  repeat
   lo @ negate cons-i !  cons-i @ hgt @ + prod-i !
-  name-a @ name-n @ cons-i @ prod-i @ register
+  0 name-a @ name-n @ cons-i @ prod-i @ register   \ cfa=0 (user word, not compiled)
   report-def ;
 
 \ --- the primitive effect table ( consumes produces prim <name> ) ------------

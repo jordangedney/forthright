@@ -30,6 +30,12 @@ holds two pieces:
   infers a phrase's `( in -- out )` by abstract stack simulation; `def name ( decl ) body ;`
   infers + registers a word's effect (so words compose) and flags mismatches with the
   declared signature. The project's reason for existing; `anvil-reference.py` is its spec.
+- **`forge.fr`** — the generate → check → repair loop, **self-hosted in fr**: a generator
+  builds candidate threaded bodies, the self-hosted `anvil` (`check-body`) verifies each
+  one's stack effect, shape-valid candidates are `execute`d on examples, and the first
+  passing both is "forged". Run: `( cat prelude.fr anvil.fr forge.fr; echo forge ) | ./fr`.
+  Needed `execute` (kernel prim, run a CFA), `'` (prelude tick), and the anvil `check-body`
+  refactor (check a compiled body by CFA, not stdin tokens). `forge-reference.py` = Python spec.
 
 Naming map: **forthright** (project) · **fr** (the Forth) · **ember** (the explorer) ·
 **anvil** (reserved name for the not-yet-built verifier).

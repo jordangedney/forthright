@@ -1,0 +1,72 @@
+\ forge.fr — generate -> check -> repair, SELF-HOSTED in fr.
+\
+\ The whole thesis, with nothing but fr: a breadth-first generator builds
+\ candidate threaded bodies; the self-hosted verifier anvil (`check-body`) folds
+\ in each cell's stack effect; shape-valid candidates are actually run (`execute`)
+\ on examples to confirm intent; the first that passes both is "forged".
+\
+\ Load after the prelude and anvil:   ( cat prelude.fr anvil.fr forge.fr ) | ./fr
+\ then run:   forge
+\
+\ As in forge.py, the generator (a search) stands in for an AI; the point is that
+\ nothing is accepted unless anvil — Forth checking Forth — approves the stack
+\ effect first, and that anvil checks SHAPE while `execute` on examples checks
+\ INTENT (you'll see candidates with the right shape but the wrong value).
+
+\ --- the generator's word pool (CFAs, fetched with tick) ---------------------
+variable pool  9 cells allot
+: p! ( cfa i -- )  cells pool +  ! ;
+: p@ ( i -- cfa )  cells pool +  @ ;
+10 constant np
+' dup 0 p!   ' drop 1 p!   ' swap 2 p!   ' over 3 p!   ' + 4 p!
+' - 5 p!     ' * 6 p!      ' 1+ 7 p!      ' 1- 8 p!      ' negate 9 p!
+
+\ --- scratch buffer holding the candidate's threaded body --------------------
+\ Layout: [ docol | cfa... | exit ]  — a real executable colon word at `cbuf`.
+variable cbuf  64 cells allot
+: build1 ( cfa -- )
+  'docol cbuf !   cbuf cell+ !   'exit cbuf 2 cells + ! ;
+: build2 ( cfa1 cfa2 -- )
+  'docol cbuf !   swap cbuf cell+ !   cbuf 2 cells + !   'exit cbuf 3 cells + ! ;
+
+\ --- the target: synthesize  square ( n -- n ),  with 5->25 and 3->9 ----------
+variable din  variable dout
+1 din !  1 dout !
+: shape-ok? ( -- flag )  cbuf cell+ check-body  dout @ =  swap din @ =  and ;
+: goal?     ( -- flag )  5 cbuf execute 25 =   3 cbuf execute 9 =   and ;
+
+\ --- printing a candidate body -----------------------------------------------
+: .cand ( -- )
+  cbuf cell+
+  begin  dup @  dup 'exit =  0=  while  .cfaname space  cell+  repeat  2drop ;
+
+\ --- consider one built candidate (anvil gate, then value test) --------------
+variable found
+: consider ( -- )
+  shape-ok? if                        \ anvil approved the stack effect
+    space space .cand
+    goal? if  [char] < emit [char] = emit  -1 found !   \ "<="  forged!
+    else      [char] ? emit  then                        \ "?"   wrong value
+    cr
+  then ;
+
+\ --- the loop: breadth-first over lengths 1 then 2 ---------------------------
+variable ii  variable jj
+: forge ( -- )
+  0 found !
+  0 ii !
+  begin  ii @ np <  found @ 0=  and  while
+    ii @ p@ build1  consider
+    ii @ 1+ ii !
+  repeat
+  found @ 0= if
+    0 ii !
+    begin  ii @ np <  found @ 0=  and  while
+      0 jj !
+      begin  jj @ np <  found @ 0=  and  while
+        ii @ p@  jj @ p@  build2  consider
+        jj @ 1+ jj !
+      repeat
+      ii @ 1+ ii !
+    repeat
+  then ;
