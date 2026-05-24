@@ -795,6 +795,222 @@ code_SYSCALL6:
 	push %rax			# push the return value
 	NEXT
 
+h_INCLUDE: .quad h_SYSCALL6
+	.byte 7
+	.ascii "include"
+INCLUDE_W: .quad code_INCLUDE		# ( -- )  include FILE — load another source file here
+code_INCLUDE:
+	call _word			# rdi = $wordbuf (path), rcx = len
+	push %rdi			# already loaded once?  (skip if so)
+	push %rcx
+	call _seen_include
+	pop %rcx
+	pop %rdi
+	test %rax, %rax
+	jnz .inc_skip
+	push %rdi			# record it, then open + switch sources
+	push %rcx
+	call _add_include
+	pop %rcx
+	pop %rdi
+	movb $0, (%rdi,%rcx)		# NUL-terminate the path in wordbuf for open(2)
+	push %rcx			# save len across the syscall (clobbers %rcx)
+	push %rsi			# save the Forth IP
+	mov $2, %rax			# sys_open(path, O_RDONLY, 0)
+	xor %rsi, %rsi
+	xor %rdx, %rdx
+	syscall
+	pop %rsi
+	pop %rcx
+	test %rax, %rax
+	js .inc_fail
+	mov %rax, %rdi			# new fd
+	call _push_include
+	NEXT
+.inc_fail:				# open failed: echo "<path> ?" so it's visible, carry on
+	push %rsi
+	mov $wordbuf, %rsi
+	mov %rcx, %rdx
+	mov $1, %rdi
+	mov $1, %rax
+	syscall
+	mov $errmsg, %rsi
+	mov $errmsg_len, %rdx
+	mov $1, %rdi
+	mov $1, %rax
+	syscall
+	pop %rsi
+	NEXT
+.inc_skip:
+	NEXT
+
+# --- string literals: s" ( -- addr len ) and ." ( -- ) ----------------------
+# Both IMMEDIATE. In a definition they compile an inline runtime word + [count][bytes]
+# [pad-to-cell]; the runtime (DOTQ / SQUOTE_RT) acts on it and steps the IP past the
+# bytes. Interpreted, they act immediately. (Note: `see` does not decode inline strings.)
+DOTQ: .quad code_DOTQ			# (.")  runtime — print the inline string
+code_DOTQ:
+	lodsq				# rax = count, rsi -> bytes
+	mov %rax, %r9
+	mov %rax, %rdx
+	mov $1, %rdi
+	mov $1, %rax
+	syscall				# write(1, rsi, count); the kernel preserves rsi
+	mov %r9, %rax
+	add $7, %rax
+	and $-8, %rax
+	add %rax, %rsi			# step the IP past the padded bytes
+	NEXT
+SQUOTE_RT: .quad code_SQUOTE_RT		# (s")  runtime — push ( addr count )
+code_SQUOTE_RT:
+	lodsq				# rax = count, rsi -> bytes
+	mov %rax, %r9
+	push %rsi			# addr
+	push %r9			# count
+	mov %r9, %rax
+	add $7, %rax
+	and $-8, %rax
+	add %rax, %rsi
+	NEXT
+
+# _compile_inline — append [rt][count][bytes][pad] at HERE.  in: rdi=ptr rcx=len rdx=rt
+_compile_inline:
+	mov var_here, %r8
+	mov %rdx, (%r8)
+	add $8, %r8
+	mov %rcx, (%r8)
+	add $8, %r8
+	mov %r8, %r11			# r11 = bytes start (NOT cell-aligned: dict is packed)
+	mov %rdi, %r9
+	mov %rcx, %r10
+.ci_copy:
+	test %r10, %r10
+	jz .ci_pad
+	movb (%r9), %al
+	movb %al, (%r8)
+	inc %r9
+	inc %r8
+	dec %r10
+	jmp .ci_copy
+.ci_pad:
+	mov %rcx, %rax			# advance HERE by roundup8(len) *from the bytes start*,
+	add $7, %rax			#   so the next cell sits one cell past the bytes —
+	and $-8, %rax			#   matching the runtime advance (which is also relative).
+	add %r11, %rax
+	mov %rax, var_here
+	ret
+
+h_SQUOTE: .quad h_INCLUDE
+	.byte 0x82			# IMMEDIATE | name length 2
+	.ascii "s\""
+SQUOTE: .quad code_SQUOTE		# ( -- addr len )  the string's address + length
+code_SQUOTE:
+	call _parse_string		# rdi = $strbuf, rcx = len
+	mov var_state, %rax
+	test %rax, %rax
+	jz .sq_now
+	mov $SQUOTE_RT, %rdx
+	call _compile_inline
+	NEXT
+.sq_now:
+	push %rdi			# addr
+	push %rcx			# len
+	NEXT
+
+h_DOTQUOTE: .quad h_SQUOTE
+	.byte 0x82			# IMMEDIATE | name length 2
+	.ascii ".\""
+DOTQUOTE: .quad code_DOTQUOTE		# ( -- )  print the string
+code_DOTQUOTE:
+	call _parse_string
+	mov var_state, %rax
+	test %rax, %rax
+	jz .dq_now
+	mov $DOTQ, %rdx
+	call _compile_inline
+	NEXT
+.dq_now:
+	push %rsi			# save IP
+	mov %rdi, %rsi			# buf = parsed string
+	mov %rcx, %rdx			# count
+	mov $1, %rdi
+	mov $1, %rax
+	syscall
+	pop %rsi
+	NEXT
+
+# --- bulk memory + bitwise primitives (cheap in asm, slow/ugly to derive) ----
+h_CMOVE: .quad h_DOTQUOTE
+	.byte 5
+	.ascii "cmove"
+CMOVE: .quad code_CMOVE			# ( src dst n -- )  copy n bytes, low address first
+code_CMOVE:
+	pop %rcx
+	pop %r8				# dst
+	pop %r9				# src
+	test %rcx, %rcx
+	jz .cmove_done
+.cmove_loop:
+	movb (%r9), %al
+	movb %al, (%r8)
+	inc %r9
+	inc %r8
+	dec %rcx
+	jnz .cmove_loop
+.cmove_done:
+	NEXT
+
+h_FILL: .quad h_CMOVE
+	.byte 4
+	.ascii "fill"
+FILL: .quad code_FILL			# ( addr n c -- )  set n bytes at addr to c
+code_FILL:
+	pop %rax			# c
+	pop %rcx			# n
+	pop %r8				# addr
+	test %rcx, %rcx
+	jz .fill_done
+.fill_loop:
+	movb %al, (%r8)
+	inc %r8
+	dec %rcx
+	jnz .fill_loop
+.fill_done:
+	NEXT
+
+h_XOR: .quad h_FILL
+	.byte 3
+	.ascii "xor"
+XOR: .quad code_XOR			# ( a b -- a^b )
+code_XOR:
+	pop %rax
+	pop %rdx
+	xor %rax, %rdx
+	push %rdx
+	NEXT
+
+h_LSHIFT: .quad h_XOR
+	.byte 6
+	.ascii "lshift"
+LSHIFT: .quad code_LSHIFT		# ( x n -- x<<n )
+code_LSHIFT:
+	pop %rcx
+	pop %rax
+	shl %cl, %rax
+	push %rax
+	NEXT
+
+h_RSHIFT: .quad h_LSHIFT
+	.byte 6
+	.ascii "rshift"
+RSHIFT: .quad code_RSHIFT		# ( x n -- x>>n )  logical (zero-fill)
+code_RSHIFT:
+	pop %rcx
+	pop %rax
+	shr %cl, %rax
+	push %rax
+	NEXT
+
 # ===========================================================================
 # Outer interpreter helpers (register-passing; never touch the data stack).
 
@@ -837,13 +1053,23 @@ _refill:
 	pop %rsi
 	test %rax, %rax
 	jg .refill_ok			# >0 bytes read
-	call _next_source		# EOF/error on this source -> move to the next
+	call _pop_include		# EOF: first resume an enclosing `include`, if any
+	test %rax, %rax
+	jz .refill_next
+	mov inbuf_len, %rax		# include popped: parent's saved remainder is back in inbuf
+	test %rax, %rax
+	jnz .refill_ok2			#   remainder > 0 -> hand it straight back
+	jmp .refill_again		#   remainder empty -> read on from the restored parent fd
+.refill_next:
+	call _next_source		# no enclosing include -> move to the next argv/stdin source
 	test %rax, %rax
 	jnz .refill_again		# a new source opened -> read it
 	xor %rax, %rax			# nothing left anywhere
 	mov %rax, inbuf_len
 	mov %rax, inbuf_pos
 	ret
+.refill_ok2:
+	ret				# inbuf_len already set (>0), inbuf_pos = 0 (by _pop_include)
 .refill_ok:
 	mov %rax, inbuf_len
 	movq $0, inbuf_pos
@@ -890,6 +1116,194 @@ _next_source:
 .ns_none:
 	pop %rsi
 	xor %rax, %rax			# every source exhausted
+	ret
+
+# --- `include` support: a nested input-source stack -------------------------
+# `include FILE` pauses the current source, reads FILE to completion, then resumes.
+# A frame saves the parent fd + the *unparsed remainder* of its inbuf (so we can
+# return to mid-file); _refill pops a frame on EOF before trying the next argv source.
+# An include-once registry (length-prefixed paths) makes diamond deps load once.
+
+# _push_include — switch input to %rdi (a new fd), saving the current source. Keeps %rsi.
+_push_include:
+	push %rsi
+	mov incl_sp, %rax
+	cmp $incl_max, %rax
+	jae .pi_noroom			# too deep: just switch (resume of the parent is lost)
+	imul $incl_frame, %rax, %r8
+	add $incl_stack, %r8		# r8 = frame base
+	mov var_infd, %rdx
+	mov %rdx, (%r8)			# frame.fd = current fd
+	mov inbuf_len, %rcx
+	sub inbuf_pos, %rcx		# remainder = inbuf_len - inbuf_pos
+	mov %rcx, 8(%r8)		# frame.len = remainder
+	lea 16(%r8), %r9		# dst = frame.bytes
+	mov inbuf_pos, %r10
+	lea inbuf(%r10), %r11		# src = inbuf + inbuf_pos
+.pi_copy:
+	test %rcx, %rcx
+	jz .pi_done
+	movb (%r11), %al
+	movb %al, (%r9)
+	inc %r11
+	inc %r9
+	dec %rcx
+	jmp .pi_copy
+.pi_done:
+	incq incl_sp
+.pi_noroom:
+	mov %rdi, var_infd		# switch to the included file
+	movq $0, inbuf_len
+	movq $0, inbuf_pos
+	pop %rsi
+	ret
+
+# _pop_include — resume the enclosing source. out: %rax=1 if popped (inbuf restored), else 0.
+_pop_include:
+	mov incl_sp, %rax
+	test %rax, %rax
+	jz .po_none
+	push %rsi
+	mov var_infd, %rdi		# close the finished include's fd (real files only)
+	cmp $2, %rdi
+	jle .po_noclose
+	mov $3, %rax			# sys_close
+	syscall
+.po_noclose:
+	decq incl_sp
+	mov incl_sp, %rax
+	imul $incl_frame, %rax, %r8
+	add $incl_stack, %r8
+	mov (%r8), %rdx
+	mov %rdx, var_infd		# restore the parent fd
+	mov 8(%r8), %rcx		# remainder count
+	mov %rcx, inbuf_len
+	movq $0, inbuf_pos
+	lea 16(%r8), %r11		# src = frame.bytes
+	xor %r9, %r9			# dst index
+.po_copy:
+	test %rcx, %rcx
+	jz .po_done
+	movb (%r11), %al
+	movb %al, inbuf(%r9)
+	inc %r11
+	inc %r9
+	dec %rcx
+	jmp .po_copy
+.po_done:
+	pop %rsi
+	mov $1, %rax
+	ret
+.po_none:
+	xor %rax, %rax
+	ret
+
+# _seen_include — has this path been included before?  in: %rdi=ptr %rcx=len  out: %rax=1/0
+_seen_include:
+	mov $incl_registry, %r8
+.si_loop:
+	cmp incl_reg_end, %r8
+	jae .si_no
+	movzbq (%r8), %rdx		# stored length byte
+	cmp %rdx, %rcx
+	jne .si_skip
+	lea 1(%r8), %r9			# stored bytes
+	mov %rdi, %r10			# query bytes
+	mov %rcx, %r11
+.si_cmp:
+	test %r11, %r11
+	jz .si_yes
+	movb (%r9), %al
+	movb (%r10), %dl
+	cmp %al, %dl
+	jne .si_skip
+	inc %r9
+	inc %r10
+	dec %r11
+	jmp .si_cmp
+.si_skip:
+	movzbq (%r8), %rdx		# re-load len (clobbered above) and step past [len][bytes]
+	lea 1(%r8,%rdx), %r8
+	jmp .si_loop
+.si_yes:
+	mov $1, %rax
+	ret
+.si_no:
+	xor %rax, %rax
+	ret
+
+# _add_include — record a path as loaded.  in: %rdi=ptr %rcx=len
+_add_include:
+	mov incl_reg_end, %r8
+	lea 1(%r8,%rcx), %rax		# would-be new end
+	cmp $incl_registry_end, %rax
+	jae .ai_full			# registry full: silently don't record (worst case: reload)
+	mov %cl, (%r8)			# length byte
+	inc %r8
+	mov %rdi, %r9
+	mov %rcx, %r10
+.ai_copy:
+	test %r10, %r10
+	jz .ai_done
+	movb (%r9), %al
+	movb %al, (%r8)
+	inc %r9
+	inc %r8
+	dec %r10
+	jmp .ai_copy
+.ai_done:
+	mov %r8, incl_reg_end
+.ai_full:
+	ret
+
+# _parse_string — read a "-delimited string into strbuf (for s" and .").  Consumes one
+#   leading delimiter space, then bytes up to the closing " (also consumed).
+#   out: %rdi = $strbuf, %rcx = length.
+_parse_string:
+	mov inbuf_pos, %rax
+	cmp inbuf_len, %rax
+	jb .ps_lead
+	call _refill
+	test %rax, %rax
+	jz .ps_empty
+.ps_lead:
+	mov inbuf_pos, %rax
+	cmp inbuf_len, %rax
+	jae .ps_init
+	movzbq inbuf(%rax), %rdx
+	cmp $' ', %dl
+	jne .ps_init
+	incq inbuf_pos			# consume the single delimiter space
+.ps_init:
+	xor %rcx, %rcx
+.ps_take:
+	mov inbuf_pos, %rax
+	cmp inbuf_len, %rax
+	jb .ps_char
+	push %rcx
+	call _refill
+	pop %rcx
+	test %rax, %rax
+	jz .ps_done			# EOF before the closing " -> end the string here
+	jmp .ps_take
+.ps_char:
+	movzbq inbuf(%rax), %rdx
+	cmp $'"', %dl
+	je .ps_close
+	movb %dl, strbuf(%rcx)
+	incq inbuf_pos
+	inc %rcx
+	cmp $strbuf_size, %rcx
+	jb .ps_take
+	jmp .ps_done			# pathologically long: truncate
+.ps_close:
+	incq inbuf_pos			# consume the closing "
+.ps_done:
+	mov $strbuf, %rdi
+	ret
+.ps_empty:
+	xor %rcx, %rcx
+	mov $strbuf, %rdi
 	ret
 
 # _word — parse the next whitespace-delimited token, copying it into `wordbuf`.
@@ -1104,7 +1518,7 @@ errmsg:	.ascii " ?\n"
 	.equ errmsg_len, . - errmsg
 
 	.data
-var_latest: .quad h_SYSCALL6		# newest dictionary entry (head of FIND)
+var_latest: .quad h_RSHIFT		# newest dictionary entry (head of FIND)
 systab:     .quad docol, LIT, EXIT, BRANCH, ZBRANCH	# headerless engine CFAs (for `see`)
 var_state:  .quad 0			# 0 = interpret, 1 = compile
 var_here:   .quad dict_space		# next free byte for new definitions
@@ -1115,6 +1529,8 @@ var_argv:   .quad 0			# &argv[0], captured at _start
 var_argi:   .quad 1			# next argv index to open (argv[0] is the program)
 var_stdin_used: .quad 0			# 1 once stdin has been used as a source
 var_infd:   .quad -1			# current input fd; -1 = none open yet
+incl_sp:    .quad 0			# `include` source-stack depth
+incl_reg_end: .quad incl_registry	# next free byte in the include-once path registry
 
 	.bss
 	.lcomm data_stack, 4096
@@ -1127,5 +1543,13 @@ var_infd:   .quad -1			# current input fd; -1 = none open yet
 	.lcomm inbuf, inbuf_size	#   _word reassembles tokens that span refills
 	.equ   wordbuf_size, 256	# holding buffer for one parsed token (copied out of inbuf)
 	.lcomm wordbuf, wordbuf_size
+	.equ   strbuf_size, 1024	# holding buffer for one s"/." string literal
+	.lcomm strbuf, strbuf_size
 	.equ   dict_size, 65536		# room for definitions created at runtime
 	.lcomm dict_space, dict_size
+	.equ   incl_max, 16		# max nested `include` depth
+	.equ   incl_frame, 16 + inbuf_size	# per frame: parent fd (8) + remainder len (8) + saved bytes
+	.lcomm incl_stack, incl_max * incl_frame
+	.equ   incl_reg_size, 4096	# include-once registry: length-prefixed loaded paths
+	.lcomm incl_registry, incl_reg_size
+	.equ   incl_registry_end, incl_registry + incl_reg_size
