@@ -186,6 +186,10 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
 : dotq?  ( -- f )  tok-n @ 2 =  tok-a @ c@ [char] . =  and  tok-a @ 1+ c@ [char] " =  and ;
 : ends-quote? ( -- f )  tok-n @ 0= if  0  else  tok-a @ tok-n @ + 1- c@ [char] " =  then ;
 : skip-string ( -- )  begin  read-tok  ends-quote?  tok-n @ 0= or  until ;  \ consume to the closing "
+\ kernel comment words, stashed so `classify` can skip comments inside a body (anvil's own token
+\ reader doesn't see newlines, so `\` must delegate to the kernel). Tick now, before any shadowing.
+' \  constant kbackslash
+' (  constant kparen
 
 \ --- unknown-word recording (by name, so reports can show them) --------------
 : unk, ( x -- )  unkp @ !  unkp @ 8 + unkp ! ;
@@ -286,6 +290,8 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
     if  0 post-exit !                             \ a closer ends the dead region — resume normally
     else  deaderr @ 0= if -1 deaderr ! then  exit  then  \ otherwise this token is unreachable; skip it
   then
+  s" \" tok= if  kbackslash execute  exit then    \ skip a `\ … ` line comment in the body
+  s" (" tok= if  kparen     execute  exit then    \ skip a `( … )` inline comment in the body
   if?     if  do-if      exit  then               \ control flow first
   else?   if  do-else    exit  then
   then?   if  do-then    exit  then
@@ -323,6 +329,8 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
   s" *"  tok= if  a-mul     exit then
   s" /"  tok= if  a-divmod  exit then
   s" mod" tok= if a-divmod  exit then
+  s" /mod" tok= if  topk KZ = if zerr @ 1+ zerr ! then  bad-arith  2 2 apply  \ ( n d -- rem quot )
+    KN hgt @ 2 - k!h  KN kset  exit then
   s" 1+" tok= if  a-incr   exit then
   s" 1-" tok= if  a-incr   exit then
   s" cell+" tok= if a-incr exit then
@@ -451,7 +459,7 @@ variable dinkbuf 64 cells allot  variable dki    \ declared input kinds, in orde
 2 1 prim mod      1 1 prim negate   1 1 prim 1+       1 1 prim 1-
 1 1 prim abs      1 1 prim 2*       1 1 prim 2/       2 1 prim min
 2 1 prim max      2 1 prim and      2 1 prim or       2 1 prim xor
-2 1 prim lshift   2 1 prim rshift
+2 1 prim lshift   2 1 prim rshift   1 1 prim invert
 \ comparisons (all leave one flag)
 2 1 prim =        2 1 prim <        2 1 prim >        2 1 prim <=
 2 1 prim >=       1 1 prim 0=       1 1 prim 0<       1 1 prim 0>
@@ -459,6 +467,7 @@ variable dinkbuf 64 cells allot  variable dki    \ declared input kinds, in orde
 1 1 prim @        2 0 prim !        1 1 prim c@       2 0 prim c!
 1 0 prim ,        1 1 prim cells    1 1 prim cell+
 2 0 prim type     3 0 prim cmove    3 0 prim fill     1 2 prim count    1 0 prim spaces
+2 2 prim /mod     2 1 prim find     0 1 prim latest   0 1 prim sp@      0 1 prim sp0
 \ return-stack words (classify special-cases these too, for r-balance)
 1 0 prim >r       0 1 prim r>       0 1 prim r@
 \ counted-loop helpers
@@ -467,6 +476,7 @@ variable dinkbuf 64 cells allot  variable dki    \ declared input kinds, in orde
 1 0 prim emit     0 1 prim key      1 0 prim .        1 0 prim u.
 0 1 prim depth    0 0 prim space    0 0 prim cr       0 0 prim bye
 0 1 prim here     1 0 prim allot    1 1 prim square
+4 1 prim syscall3 7 1 prim syscall6   \ raw syscalls: fixed arity (args + number -> ret)
 
 \ --- recognize `variable` / `constant` so anvil can check STATEFUL code -----------
 \ These shadow the kernel words while anvil is loaded (anvil's own internals are already

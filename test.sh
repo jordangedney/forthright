@@ -83,6 +83,9 @@ check "anvil: consistent exit ok"  "$(echo 'def f ( n -- n ) dup 0< if negate ex
 check "anvil: strings + type"      "$(echo 'def g ( -- ) s" hi" type ;'              | ./fr anvil.fr)" "ok"
 check "anvil: [char] is a char"    "$(echo 'def c ( -- n ) [char] A ;'               | ./fr anvil.fr)" "ok"
 check "anvil: dead code after exit" "$(echo 'def f ( n -- n ) dup 0< if negate exit 9 then ;' | ./fr anvil.fr)" "dc!"
+check "anvil: skips body comments"  "$(echo 'def f ( n -- n ) dup ( double ) * ;'         | ./fr anvil.fr)" "ok"
+# dogfood: the real lib/io.fr (: -> def, includes stripped) must verify with no warnings.
+check "anvil: real lib (io) clean"  "$(sed -E '/^[[:space:]]*include /d; s/^([[:space:]]*):([[:space:]])/\1def\2/' lib/io.fr | ./fr anvil.fr 2>&1 | grep -cE 'BAD|\?|br!|ty!|ex!|dc!|ctl!|/0!')" "0"
 check "forge: synthesizes dup *"   "$(echo forge | ./fr forge.fr)"                                    "dup *"
 
 # --all (or -a): also run the explorer suite, folding its result into the exit code.
