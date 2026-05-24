@@ -64,7 +64,8 @@ Build and run (it's a REPL — reads Forth from stdin until EOF):
 
 Known words: `dup drop swap over + - * . negate = < > 0= bye square`, memory words
 `@ ! c@ c! , here allot cells cell+ variable constant`, the control-flow words
-`if else then begin until`, and `:` `;` for defining your own.
+`if else then begin until`, parsing/IO `word find number s= char [char] emit type cr`,
+and `:` `;` for defining your own.
 Numbers (incl. negatives) push themselves; unknown tokens echo back with `?`.
 
     echo ': cube dup dup * * ;  4 cube .'          | ./fr   # -> 64
@@ -120,9 +121,10 @@ word's body; `exit` pops back. The Python engine is a deliberate superset of fr
 - [x] Control flow: `0branch` + immediate `if else then` / `begin until` —
       fr is now Turing-complete
 - [x] Memory: `@ ! c@ c! , here allot cells cell+`, `variable`, `constant`
-      (shared `_create` header-builder; `dovar`/`doconst` runtimes) (~2.3 KB text)
-- [ ] More arithmetic/logic: `/ mod and or invert`
-- [ ] Parsing/strings exposed to Forth (`word`, char literals, string compare)
-- [ ] **anvil**, self-hosted: a stack-effect verifier written *in fr*. Building
-      fr up to where it can host it; `anvil-reference.py` is the Python spec of
-      the intended semantics (abstract stack simulation + declared-effect check).
+      (shared `_create` header-builder; `dovar`/`doconst` runtimes)
+- [x] Parsing / strings / output: `word find number s= char [char] emit type cr`
+      — the toolkit to read source, match names, and print a report (~2.8 KB text)
+- [ ] More arithmetic/logic: `/ mod and or invert` (add as anvil needs them)
+- [ ] **anvil.fr**, self-hosted: a stack-effect verifier written *in fr*. All the
+      prerequisites now exist; `anvil-reference.py` is the Python spec of the
+      semantics (abstract stack simulation + declared-effect check).

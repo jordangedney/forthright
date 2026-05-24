@@ -512,6 +512,153 @@ code_CONSTANT:
 	mov %r9, var_here
 	NEXT
 
+# ---------------------------------------------------------------------------
+# Parsing, string compare, and text output — the toolkit anvil.fr will use to
+# read source tokens, match names, and print a report. `word`/`find`/`number`
+# expose the internal helpers; addr/len pairs point into the input buffer, so
+# consume a token before the next refill.
+
+h_WORD:	.quad h_CONSTANT
+	.byte 4
+	.ascii "word"
+WORD:	.quad code_WORD			# ( -- addr len )  parse the next token
+code_WORD:
+	call _word			# rdi = ptr, rcx = len
+	push %rdi
+	push %rcx
+	NEXT
+
+h_FIND:	.quad h_WORD
+	.byte 4
+	.ascii "find"
+FIND:	.quad code_FIND			# ( addr len -- cfa | 0 )  look up in the dictionary
+code_FIND:
+	pop %rcx			# len
+	pop %rdi			# addr
+	call _find			# rax = header or 0  (rdi,rcx preserved)
+	test %rax, %rax
+	jz .find_zero
+	lea 9(%rax), %rdx		# header + 9 + len = CFA
+	add %rcx, %rdx
+	push %rdx
+	NEXT
+.find_zero:
+	push %rax			# 0
+	NEXT
+
+h_NUMBER: .quad h_FIND
+	.byte 6
+	.ascii "number"
+NUMBER:	.quad code_NUMBER		# ( addr len -- n flag )  flag = -1 if numeric
+code_NUMBER:
+	pop %rcx			# len
+	pop %rdi			# addr
+	call _number			# rax = value, rdx = 0 if ok
+	push %rax			# n
+	test %rdx, %rdx
+	setz %al
+	movzbq %al, %rax
+	neg %rax			# -1 if parsed, 0 if not a number
+	push %rax
+	NEXT
+
+h_SEQ:	.quad h_NUMBER
+	.byte 2
+	.ascii "s="
+SEQ:	.quad code_SEQ			# ( a1 n1 a2 n2 -- flag )  string equality
+code_SEQ:
+	pop %r11			# n2
+	pop %r10			# a2
+	pop %rcx			# n1
+	pop %rdi			# a1
+	cmp %rcx, %r11
+	jne .seq_false			# different lengths
+.seq_loop:
+	test %rcx, %rcx
+	jz .seq_true
+	movb (%rdi), %al
+	movb (%r10), %dl
+	cmp %al, %dl
+	jne .seq_false
+	inc %rdi
+	inc %r10
+	dec %rcx
+	jmp .seq_loop
+.seq_true:
+	mov $-1, %rax
+	push %rax
+	NEXT
+.seq_false:
+	xor %rax, %rax
+	push %rax
+	NEXT
+
+h_CHAR:	.quad h_SEQ
+	.byte 4
+	.ascii "char"
+CHAR:	.quad code_CHAR			# ( -- c )  code of the next token's first char
+code_CHAR:
+	call _word
+	movzbq (%rdi), %rax
+	push %rax
+	NEXT
+
+h_BCHAR: .quad h_CHAR
+	.byte 0x86			# IMMEDIATE | len 6
+	.ascii "[char]"
+BCHAR:	.quad code_BCHAR		# compile-time: compile LIT <char>
+code_BCHAR:
+	call _word
+	movzbq (%rdi), %rax
+	mov var_here, %r8
+	movq $LIT, (%r8)
+	add $8, %r8
+	mov %rax, (%r8)
+	add $8, %r8
+	mov %r8, var_here
+	NEXT
+
+h_EMIT:	.quad h_BCHAR
+	.byte 4
+	.ascii "emit"
+EMIT:	.quad code_EMIT			# ( c -- )  write one byte to stdout
+code_EMIT:
+	pop %rax
+	mov %al, emitbuf
+	push %rsi			# save IP (write uses %rsi)
+	mov $emitbuf, %rsi
+	mov $1, %rdx
+	mov $1, %rdi
+	mov $1, %rax
+	syscall
+	pop %rsi
+	NEXT
+
+h_TYPE:	.quad h_EMIT
+	.byte 4
+	.ascii "type"
+TYPE:	.quad code_TYPE			# ( addr len -- )  write a string to stdout
+code_TYPE:
+	pop %rdx			# len
+	pop %rax			# addr
+	push %rsi			# save IP
+	mov %rax, %rsi			# buf
+	mov $1, %rdi
+	mov $1, %rax
+	syscall
+	pop %rsi
+	NEXT
+
+# cr — defined in the language, in terms of emit.
+h_CR:	.quad h_TYPE
+	.byte 2
+	.ascii "cr"
+CR:	.quad docol			# ( -- )  emit a newline
+	.quad LIT
+	.quad 10
+	.quad EMIT
+	.quad EXIT
+
 # ===========================================================================
 # Outer interpreter helpers (register-passing; never touch the data stack).
 
@@ -754,7 +901,7 @@ errmsg:	.ascii " ?\n"
 	.equ errmsg_len, . - errmsg
 
 	.data
-var_latest: .quad h_CONSTANT		# newest dictionary entry (head of FIND)
+var_latest: .quad h_CR			# newest dictionary entry (head of FIND)
 var_state:  .quad 0			# 0 = interpret, 1 = compile
 var_here:   .quad dict_space		# next free byte for new definitions
 inbuf_len:  .quad 0			# valid bytes currently in inbuf
@@ -766,6 +913,7 @@ inbuf_pos:  .quad 0			# parse cursor into inbuf
 	.lcomm return_stack, 4096
 	.equ   return_stack_top, return_stack + 4096
 	.lcomm numbuf, 32
+	.lcomm emitbuf, 8		# 1-byte scratch for `emit`
 	.equ   inbuf_size, 4096
 	.lcomm inbuf, inbuf_size
 	.equ   dict_size, 65536		# room for definitions created at runtime
