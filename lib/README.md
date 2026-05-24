@@ -63,3 +63,8 @@ but `include` is the ergonomic way.)
 `prelude math string fmt term key draw time io ptrace` are implemented and tested
 (`./test.sh` covers them). `tui` has `label/status-bar/menu/accept` working; richer
 widgets (scrolling lists, multi-field forms) are the next layer to grow here.
+
+See **`examples/`** for programs built on the lib: `demo.fr` (a static sample screen —
+panel + menu + an `fmt` number table) and **`tetris.fr`** (a full playable Tetris:
+`draw` for the board, `key` arrows for control, `time`'s `now-ms` for gravity — run it
+with `./fr examples/tetris.fr`).

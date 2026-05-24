@@ -51,6 +51,34 @@ LIBF="$(mktemp)"
 printf 's" %s" zpath open-w dup s" io-ok" write-fd drop close-fd\n' "$LIBF" | ./fr lib/io.fr
 check "lib/io: write a file"     "$(cat "$LIBF")"                                                      "io-ok"
 rm -f "$LIBF"
+# --- examples ----------------------------------------------------------------
+check "examples/demo runs"       "$(timeout 5 ./fr examples/demo.fr)"                                  "New game"
+# tetris is interactive (auto-runs); load it under a pty, play a couple of keys, quit.
+check "examples/tetris (pty)"    "$(python3 - <<'PY' 2>/dev/null
+import os,pty,select,time,re
+pid,fd=pty.fork()
+if pid==0:
+    try: os.execv("./fr",["./fr","examples/tetris.fr"])
+    except Exception: os._exit(127)
+def rd(t):
+    o=b"";dl=time.time()+t
+    while time.time()<dl:
+        r,_,_=select.select([fd],[],[],max(0,dl-time.time()))
+        if not r: break
+        try: c=os.read(fd,65536)
+        except OSError: break
+        if not c: break
+        o+=c
+    return o
+out=rd(0.8)
+for k in (b' ',b'l',b'h',b'\x1b[A',b' '): os.write(fd,k); out+=rd(0.2)
+os.write(fd,b'q'); out+=rd(0.8)
+try: os.close(fd); os.waitpid(pid,0)
+except OSError: pass
+clean=re.sub(rb'\x1b\[[0-9;?]*[A-Za-z]',b'',out)
+print("TETRIS OK" if (b'?' not in clean[:120] and b'game over' in clean and b'\xe2\x96\x88' in out) else "TETRIS FAIL")
+PY
+)" "TETRIS OK"
 check "term: ANSI cursor+colour"  "$( ( cat lib/prelude.fr lib/term.fr; echo '7 12 1 paint' ) | ./fr )"        "[7;12H"
 check "anvil: def ... ok"        "$( ( cat lib/prelude.fr anvil.fr; echo 'def sq ( n -- n ) dup * ;' ) | ./fr )" "ok"
 check "anvil: catches BAD"       "$( ( cat lib/prelude.fr anvil.fr; echo 'def bad ( a b -- c ) + + ;' ) | ./fr )" "BAD"
