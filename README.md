@@ -62,16 +62,17 @@ Build and run (it's a REPL — reads Forth from stdin until EOF):
     echo '3 4 + 5 * .' | ./fr     # -> 35
     ./fr                          # or type at it interactively; Ctrl-D to quit
 
-Known words: `dup drop swap over + - * . negate = < > 0= bye square`, memory words
-`@ ! c@ c! , here allot cells cell+ variable constant`, the control-flow words
-`if else then begin until`, parsing/IO `word find number s= char [char] emit type cr`,
-glue `exit 2dup 2drop nip rot 1+ 1- and or` + `begin while repeat`,
-and `:` `;` for defining your own.
-Numbers (incl. negatives) push themselves; unknown tokens echo back with `?`.
+The **kernel** (raw `./fr`) knows only the irreducible primitives: `dup drop swap`,
+memory `@ ! c@ c! here allot`, return stack `>r r> r@`, arithmetic `+ - * / mod`,
+`= <`, `and or`, I/O `. emit type word find number s= [char]`, `variable constant
+latest bye`, and the compiling words `: ; if else then begin until while repeat \ (`.
+Load **prelude.fr** for the rest (`over rot nip 2dup 2drop negate 1+ 1- cells cell+
+> 0= , char cr space square u.`). Numbers (incl. negatives) push themselves; unknown
+tokens echo back with `?`.
 
-    echo ': cube dup dup * * ;  4 cube .'          | ./fr   # -> 64
-    echo ': abs dup 0 < if negate then ;  -5 abs .' | ./fr   # -> 5
-    echo ': countdown begin dup . 1 - dup 0 = until drop ;  5 countdown' | ./fr
+    echo ': cube dup dup * * ;  4 cube .' | ./fr                                # -> 64
+    ( cat prelude.fr; echo ': abs dup 0 < if negate then ;  -5 abs .' ) | ./fr   # -> 5
+    ( cat prelude.fr; echo ': cd begin dup . 1 - dup 0 = until drop ;  5 cd' ) | ./fr
 
 Engine conventions: `%rsi`=IP, `%rsp`=data stack, `%rbp`=return stack, `%rax`=W.
 `NEXT` is the inner interpreter; `docol`/`EXIT` drive the return stack. The outer
@@ -145,13 +146,15 @@ Python spec it follows.
       (shared `_create` header-builder; `dovar`/`doconst` runtimes)
 - [x] Parsing / strings / output: `word find number s= char [char] emit type cr`
       — the toolkit to read source, match names, and print a report (~2.8 KB text)
-- [x] Glue for practical programming: `exit rot and or begin while repeat`,
-      comments `\` `(`, division `/ mod`, and `latest` (dictionary introspection)
-- [x] **prelude.fr** — fr's standard library, words defined *in fr* and pulled out
-      of the assembly kernel (`1+ 1- 2dup 2drop nip cr space`, and `u.`, a decimal
-      number printer built from `/mod`). The rule now: if a word can be written in
-      fr, it goes here, not in fr.s. Load with `( cat prelude.fr prog.fr ) | ./fr`.
-      Kernel slimmed to ~3.2 KB. (anvil.fr builds on it.)
+- [x] Kernel extras: `exit and or begin while repeat`, comments `\` `(`, division
+      `/ mod`, return stack `>r r> r@`, and `latest` (dictionary introspection)
+- [x] **prelude.fr** — fr's standard library, *everything* derivable pulled out of
+      the assembly kernel and written in fr: `over rot nip 2dup 2drop`, `negate 1+
+      1- cells cell+`, `> 0=`, `, char cr space square`, and `u.` (a decimal printer
+      built from `/mod`). `over`/`rot` are defined via `>r`/`r>`. The rule: if a word
+      can be written in fr, it lives here, not in fr.s — which is now down to ~2.9 KB
+      of irreducible primitives + the parse/compile/IO bootstrap. Load with
+      `( cat prelude.fr prog.fr ) | ./fr`. (anvil.fr builds on it.)
 - [x] **anvil.fr**, self-hosted: a stack-effect verifier written *in fr* (~110
       lines). `check{ … }` infers a phrase's `( in -- out )`; `def name ( decl )
       body ;` infers + registers a word's effect (so words compose) and flags any

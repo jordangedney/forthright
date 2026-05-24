@@ -1,22 +1,39 @@
-\ prelude.fr — fr's standard library: words derivable from the kernel primitives,
-\ written in fr itself. Keeping these out of fr.s keeps the assembly kernel small
-\ and auditable; load the prelude for the full vocabulary:
+\ prelude.fr — fr's standard library: every word derivable from the kernel
+\ primitives, written in fr itself. Keeping these out of fr.s keeps the assembly
+\ kernel minimal and auditable. Load the prelude for the full vocabulary:
 \
 \     ( cat prelude.fr yourprog.fr ) | ./fr
 \
-\ As fr grows, the rule is: if a word can be defined in fr, it belongs here, not
-\ in fr.s. (anvil.fr depends on this prelude.)
+\ Rule: if a word can be defined in fr, it belongs here, not in fr.s. The kernel
+\ now keeps only the irreducible primitives (the engine, dup/drop/swap, the
+\ return-stack and memory words, +/-/*//mod, =/<, and/or, the I/O and compiling
+\ words). Everything below is built from those.  (anvil.fr depends on this.)
 
-\ --- derived stack + arithmetic words (moved out of fr.s) --------------------
-: 1+    ( n -- n+1 )      1 + ;
-: 1-    ( n -- n-1 )      1 - ;
-: 2dup  ( a b -- a b a b ) over over ;
-: 2drop ( a b -- )        drop drop ;
-: nip   ( a b -- b )      swap drop ;
+\ --- stack (over/rot built from the return stack) ----------------------------
+: over  ( a b -- a b a )    >r dup r> swap ;
+: rot   ( a b c -- b c a )  >r swap r> swap ;
+: nip   ( a b -- b )        swap drop ;
+: 2dup  ( a b -- a b a b )  over over ;
+: 2drop ( a b -- )          drop drop ;
+
+\ --- arithmetic --------------------------------------------------------------
+: negate ( n -- -n )   0 swap - ;
+: 1+     ( n -- n+1 )  1 + ;
+: 1-     ( n -- n-1 )  1 - ;
+: cells  ( n -- n*8 )  8 * ;
+: cell+  ( a -- a+8 )  8 + ;
+
+\ --- comparison --------------------------------------------------------------
+: >      ( a b -- f )  swap < ;
+: 0=     ( n -- f )    0 = ;
+
+\ --- dictionary / parsing ----------------------------------------------------
+: ,      ( x -- )   here !  8 allot ;       \ append a cell at HERE
+: char   ( -- c )   word drop c@ ;          \ code of the next token's first char
 
 \ --- output ------------------------------------------------------------------
-: cr    ( -- )   10 emit ;
-: space ( -- )   32 emit ;
+: cr     ( -- )   10 emit ;
+: space  ( -- )   32 emit ;
 
 \ u. — print an unsigned number with no trailing newline, by extracting decimal
 \ digits with /mod into a buffer and typing them. The kernel's `.` always adds a
@@ -33,3 +50,6 @@ variable up
   until
   drop
   up @   ubuf 32 + over -   type ;
+
+\ --- handy demo word ---------------------------------------------------------
+: square ( n -- n*n )  dup * ;

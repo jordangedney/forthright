@@ -1051,6 +1051,7 @@ def native_selftest():
         print("no ./fr binary — run ./build.sh first"); return 1
     vm = NativeVM(frpath)
     print("booted: state=%s pid=%d" % (vm.state, vm.pid))
+    vm.feed(": square dup * ;"); vm.run()     # square now lives in prelude.fr, not the kernel
     vm.feed("5 square .")
     seen, guard = [], 0
     while not vm.halted and guard < 4000:

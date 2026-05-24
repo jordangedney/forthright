@@ -202,18 +202,9 @@ code_BYE:
 	xor %rdi, %rdi
 	syscall
 
-# : SQUARE  DUP * ;   — a colon definition, in threaded form.
-h_SQUARE: .quad h_BYE
-	.byte 6
-	.ascii "square"
-SQUARE:	.quad docol			# ( n -- n*n )
-	.quad DUP
-	.quad STAR
-	.quad EXIT
-
 # : ( -- )  read the next token as a name, build a dictionary header for it at
 # HERE, and switch to compile mode. INTERPRET then compiles the body until ';'.
-h_COLON: .quad h_SQUARE
+h_COLON: .quad h_BYE
 	.byte 1
 	.ascii ":"
 COLON:	.quad code_COLON
@@ -240,26 +231,9 @@ code_SEMI:
 	NEXT
 
 # ---------------------------------------------------------------------------
-# Stack + comparison primitives (Forth truth is -1 = all bits set, false = 0).
+# Comparison primitives (Forth truth is -1 = all bits set, false = 0).
 
-h_OVER:	.quad h_SEMI
-	.byte 4
-	.ascii "over"
-OVER:	.quad code_OVER			# ( a b -- a b a )
-code_OVER:
-	mov 8(%rsp), %rax
-	push %rax
-	NEXT
-
-h_NEGATE: .quad h_OVER
-	.byte 6
-	.ascii "negate"
-NEGATE:	.quad code_NEGATE		# ( n -- -n )
-code_NEGATE:
-	negq (%rsp)
-	NEXT
-
-h_EQ:	.quad h_NEGATE
+h_EQ:	.quad h_SEMI
 	.byte 1
 	.ascii "="
 EQ:	.quad code_EQ			# ( a b -- flag )
@@ -287,40 +261,13 @@ code_LT:
 	push %rax
 	NEXT
 
-h_GT:	.quad h_LT
-	.byte 1
-	.ascii ">"
-GT:	.quad code_GT			# ( a b -- flag )  signed a > b
-code_GT:
-	pop %rax
-	pop %rdx
-	cmp %rax, %rdx
-	setg %al
-	movzbq %al, %rax
-	neg %rax
-	push %rax
-	NEXT
-
-h_ZEQ:	.quad h_GT
-	.byte 2
-	.ascii "0="
-ZEQ:	.quad code_ZEQ			# ( n -- flag )
-code_ZEQ:
-	pop %rax
-	test %rax, %rax
-	setz %al
-	movzbq %al, %rax
-	neg %rax
-	push %rax
-	NEXT
-
 # ---------------------------------------------------------------------------
 # Control flow. These are IMMEDIATE: they run during compilation, emitting
 # branches and back-patching offsets, using the data stack to remember slots.
 # Compiled layout, e.g.  if T then  ->  <0branch off> <T> ;  off skips T when
 # the flag is false.  if T else E then  ->  <0branch o1> <T> <branch o2> <E> .
 
-h_IF:	.quad h_ZEQ
+h_IF:	.quad h_LT
 	.byte 0x82			# IMMEDIATE | len 2
 	.ascii "if"
 IF:	.quad code_IF			# ( -- slot )
@@ -432,19 +379,7 @@ code_CSTORE:
 	mov %dl, (%rax)
 	NEXT
 
-h_COMMA: .quad h_CSTORE
-	.byte 1
-	.ascii ","
-COMMA:	.quad code_COMMA		# ( x -- )  append a cell at HERE
-code_COMMA:
-	pop %rax
-	mov var_here, %rdx
-	mov %rax, (%rdx)
-	add $8, %rdx
-	mov %rdx, var_here
-	NEXT
-
-h_HERE:	.quad h_COMMA
+h_HERE:	.quad h_CSTORE
 	.byte 4
 	.ascii "here"
 HERE:	.quad code_HERE			# ( -- addr )  the dictionary pointer
@@ -462,28 +397,10 @@ code_ALLOT:
 	add %rax, var_here
 	NEXT
 
-h_CELLS: .quad h_ALLOT
-	.byte 5
-	.ascii "cells"
-CELLS:	.quad code_CELLS		# ( n -- n*8 )
-code_CELLS:
-	pop %rax
-	shl $3, %rax
-	push %rax
-	NEXT
-
-h_CELLPLUS: .quad h_CELLS
-	.byte 5
-	.ascii "cell+"
-CELLPLUS: .quad code_CELLPLUS		# ( addr -- addr+8 )
-code_CELLPLUS:
-	addq $8, (%rsp)
-	NEXT
-
 # variable / constant — create named storage. Both build a header via _create,
 # then set a codeword (dovar/doconst) and the data cell.
 
-h_VARIABLE: .quad h_CELLPLUS
+h_VARIABLE: .quad h_ALLOT
 	.byte 8
 	.ascii "variable"
 VARIABLE: .quad code_VARIABLE		# ( -- )  `variable foo` -> foo pushes its addr
@@ -593,17 +510,7 @@ code_SEQ:
 	push %rax
 	NEXT
 
-h_CHAR:	.quad h_SEQ
-	.byte 4
-	.ascii "char"
-CHAR:	.quad code_CHAR			# ( -- c )  code of the next token's first char
-code_CHAR:
-	call _word
-	movzbq (%rdi), %rax
-	push %rax
-	NEXT
-
-h_BCHAR: .quad h_CHAR
+h_BCHAR: .quad h_SEQ
 	.byte 0x86			# IMMEDIATE | len 6
 	.ascii "[char]"
 BCHAR:	.quad code_BCHAR		# compile-time: compile LIT <char>
@@ -659,20 +566,7 @@ h_XEXIT: .quad h_TYPE
 	.ascii "exit"
 XEXIT:	.quad code_EXIT			# ( -- )  return early from a definition
 
-h_ROT:	.quad h_XEXIT
-	.byte 3
-	.ascii "rot"
-ROT:	.quad code_ROT			# ( a b c -- b c a )
-code_ROT:
-	mov 16(%rsp), %rax		# a
-	mov 8(%rsp), %rdx		# b
-	mov (%rsp), %rcx		# c
-	mov %rdx, 16(%rsp)
-	mov %rcx, 8(%rsp)
-	mov %rax, (%rsp)
-	NEXT
-
-h_AND:	.quad h_ROT
+h_AND:	.quad h_XEXIT
 	.byte 3
 	.ascii "and"
 AND:	.quad code_AND			# ( a b -- a&b )  bitwise
@@ -786,6 +680,38 @@ h_LATEST: .quad h_MOD
 LATEST:	.quad code_LATEST		# ( -- header )  newest dictionary entry
 code_LATEST:
 	mov var_latest, %rax
+	push %rax
+	NEXT
+
+# Return-stack access. These let the prelude define over/rot and let programs
+# stash values. Contract: balance >r with r> within a word (don't EXIT with the
+# return stack disturbed — it holds the caller's IP).
+h_TOR:	.quad h_LATEST
+	.byte 2
+	.ascii ">r"
+TOR:	.quad code_TOR			# ( x -- ) ( R: -- x )
+code_TOR:
+	pop %rax
+	sub $8, %rbp
+	mov %rax, (%rbp)
+	NEXT
+
+h_FROMR: .quad h_TOR
+	.byte 2
+	.ascii "r>"
+FROMR:	.quad code_FROMR		# ( -- x ) ( R: x -- )
+code_FROMR:
+	mov (%rbp), %rax
+	add $8, %rbp
+	push %rax
+	NEXT
+
+h_RAT:	.quad h_FROMR
+	.byte 2
+	.ascii "r@"
+RAT:	.quad code_RAT			# ( -- x ) ( R: x -- x )
+code_RAT:
+	mov (%rbp), %rax
 	push %rax
 	NEXT
 
@@ -1031,7 +957,7 @@ errmsg:	.ascii " ?\n"
 	.equ errmsg_len, . - errmsg
 
 	.data
-var_latest: .quad h_LATEST		# newest dictionary entry (head of FIND)
+var_latest: .quad h_RAT			# newest dictionary entry (head of FIND)
 var_state:  .quad 0			# 0 = interpret, 1 = compile
 var_here:   .quad dict_space		# next free byte for new definitions
 inbuf_len:  .quad 0			# valid bytes currently in inbuf

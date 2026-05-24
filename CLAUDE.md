@@ -13,9 +13,11 @@ holds two pieces:
 - **`ember`** — a Python/curses TUI that single-steps the engine and visualizes it. By
   default it drives the *real* `fr` binary under `ptrace`; `--python` uses an equivalent
   pure-Python model.
-- **`prelude.fr`** — fr's standard library: words derivable from the kernel primitives,
-  written in fr (`1+ 1- 2dup 2drop nip cr space u.`). The rule: **if a word can be defined
-  in fr, it goes in `prelude.fr`, not in `fr.s`.** Load it before any program that needs it:
+- **`prelude.fr`** — fr's standard library: everything derivable, written in fr
+  (`over rot nip 2dup 2drop negate 1+ 1- cells cell+ > 0= , char cr space square u.`;
+  `over`/`rot` use `>r`/`r>`). The rule: **if a word can be defined in fr, it goes in
+  `prelude.fr`, not in `fr.s`** (the kernel is ~2.9 KB of irreducible primitives + the
+  parse/compile/IO bootstrap). Load it before any program that needs it:
   `( cat prelude.fr yourprog.fr ) | ./fr`.
 - **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted), built on the
   prelude. `check{ … }`
