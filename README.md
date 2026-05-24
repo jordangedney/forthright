@@ -154,8 +154,8 @@ It keeps a name→`(consumes,produces)` table (`prim` for built-ins, `def` for n
 words). `check{ … }` / `def` read tokens, classify each (number / known word /
 unknown), and run the abstract stack simulation (`hgt`/`lo`): inputs `= -lo`,
 outputs `= inputs+hgt`. `def` registers the inferred effect (so words compose) and
-flags any disagreement with the declared `( … -- … )`. `anvil-reference.py` is the
-Python spec it follows.
+flags any disagreement with the declared `( … -- … )`. `anvil-spec.md` is the
+written reference spec it follows.
 
 ## Forging it: forge.fr (generate → check → repair, self-hosted)
 
@@ -176,7 +176,7 @@ accepted unless **Forth-checking-Forth** approves the stack effect first, and
 anvil checks *shape* while `execute` checks *intent*. The whole pipeline runs with
 nothing but fr: it writes, verifies, and forges its own code. This needed three
 new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checking a
-*compiled body* by CFA, not stdin). `forge-reference.py` is the Python spec.
+*compiled body* by CFA, not stdin). `forge-spec.md` is the reference spec.
 
 ## Status
 
@@ -217,13 +217,13 @@ new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checki
       mismatch with the declared signature; **`if/else/then` are analyzed** — both
       arms must leave the same net effect or it's flagged `br!` (an `if…then` with
       no `else` must be height-neutral). The thesis made literal — the redundancy
-      Forth lacks, in a trust base small enough to audit. (`anvil-reference.py` = spec.)
+      Forth lacks, in a trust base small enough to audit. (`anvil-spec.md` = the spec.)
 - [x] **forge.fr** — the generate → check → repair loop, *self-hosted in fr*: a
       generator builds candidate bodies, the self-hosted `anvil` (`check-body`)
       verifies each stack effect, shape-valid candidates are `execute`d on examples,
       and the first passing both is "forged". Needed `execute` (kernel), `'`
       (prelude), and anvil checking *compiled bodies* by CFA. fr writes, verifies,
-      and forges its own code. (`forge-reference.py` is the Python spec.)
+      and forges its own code. (`forge-spec.md` = the spec.)
 - [x] **`trace`** (prelude.fr) — single-step a word on the live stack, printing it
       each step; the fr-native analog of ember's step view. Needed `sp@`/`sp0`
       (kernel) for `depth`/`.s`.

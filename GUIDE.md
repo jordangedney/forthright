@@ -32,7 +32,7 @@ and **forges** its own verified code.
 | `ember-pty` | Python harness for *scripted* (paced) pty testing of `ember.fr` |
 | `examples/` | programs on the lib: `demo.fr`, `tetris.fr` |
 | `build.sh` | `as` + `ld` → `fr` |
-| `anvil-reference.py`, `forge-reference.py` | Python specs for the fr versions |
+| `anvil-spec.md`, `forge-spec.md` | reference specs (markdown) for `anvil.fr`/`forge.fr` |
 
 Naming map: **forthright** (project) · **fr** (the language) · **anvil** (verifier)
 · **forge** (synthesizer) · **ember** (explorer).
@@ -247,12 +247,13 @@ The generator stands in for an AI; the point is that nothing is accepted unless
 
 ## 7. Verifying changes (always run after editing)
 
-**One command: `./test.sh`** — builds and runs the core checks (kernel, prelude,
-anvil, forge, term, reference specs), printing PASS/FAIL (exit non-zero on any
-failure). The explorer is costlier to test, so it has its own suite, **`./test-ember.sh`**
-(ptrace.fr, and ember.fr via `ember-trace`/`ember-pty`); `./test.sh --all` runs both. Run
-these first; the individual commands below are for looking closely at one. (`DECISIONS.md`
-records *why* the design is the way it is — read it before changing something that looks odd.)
+**One command: `./test.sh`** — builds and runs the core checks (kernel, prelude, lib,
+anvil, forge, term), printing PASS/FAIL (exit non-zero on any failure). The explorer is
+costlier to test, so it has its own suite, **`./test-ember.sh`** (ptrace.fr, and ember.fr
+via `ember-trace`/`ember-pty`); `./test.sh --all` runs both. Run these first; the individual
+commands below are for looking closely at one. (`DECISIONS.md` records *why* the design is
+the way it is — read it before changing something that looks odd; `anvil-spec.md`/`forge-spec.md`
+describe what those tools should compute.)
 
 ```sh
 ./build.sh                                   # must assemble + link cleanly
@@ -260,7 +261,6 @@ echo '5 square .' | ./fr                      # (kernel-only smoke test, e.g. du
 ./test.sh --all                               # everything: core + the explorer suite
 echo 'def bad ( a b -- c ) + + ;' | ./fr anvil.fr   # -> BAD
 echo forge | ./fr forge.fr                 # -> forges dup *
-python3 anvil-reference.py --selftest         # the Python spec still agrees
 ```
 If you change `fr.s`, `./test.sh --all` is the end-to-end check — `ember.fr`/`ptrace.fr`
 read the live dictionary out of a real traced process, so a layout regression shows up there.

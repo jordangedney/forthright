@@ -25,8 +25,9 @@ code because anvil approved it, so anvil must be small and auditable, hence in f
 The generator is the *pipeline* (the thesis says to externalize it; the "AI" is
 external by nature) and can't sneak anything past the in-fr gate regardless of how
 big/opaque it is. So self-hosting buys nothing for the generator and everything for
-the verifier. (We built `forge.fr` anyway, for purity; `forge-reference.py` remains
-the spec.)
+the verifier. (We built `forge.fr` anyway, for purity; `forge-spec.md` is its written spec.
+A future LLM generator *would* be an external script — that's the one place a host language
+is on-thesis, since it's the generator, not the verified artifact.)
 
 ### "If a word can be defined in fr, it goes in `prelude.fr`, not `fr.s`"
 The kernel keeps only irreducible primitives + the parse/compile/IO bootstrap.
@@ -126,17 +127,23 @@ deleted; the prelude's `trace` already fills the lightweight no-ptrace "model" n
 ELF/argv work and a shared dictionary — the parent decodes the child's CFAs and finds the
 stack base (`sp0`) for free.
 
-### the Python/curses `ember` prototype was removed
-The original explorer was a ~1200-line Python/curses program with two backends: a pure-Python
-model of the engine, and a `NativeVM` that ptraced the real `fr` (its own ELF-symbol parser +
-`/proc/<pid>/mem` decode). **Why remove it:** once `ember.fr` reached full parity (layout,
-autoplay, captured output, the REPL edit line), the Python one demonstrated nothing fr can't
-do — and a 1200-line Python TUI quietly contradicts the project's whole "no Python in the loop"
-point. Unlike `anvil-reference.py`/`forge-reference.py`, it was a *UI*, not a spec, so there
-was nothing to keep it as. We lose one thing: an *independent* ptrace observer that
-cross-checked the binary/dictionary layout — judged not worth the weight (the reference specs
-plus fr's own `ember-trace`/`watch` exercise the engine, and a layout regression surfaces in
-`test.sh --all`). Recoverable from git history if that cross-check is ever wanted back.
+### Python was removed from the repo (down to one test harness)
+Three Python files existed as the fr tools matured: a ~1200-line Python/curses `ember`
+explorer (a pure-Python engine model + a `NativeVM` that ptraced real `fr` via ELF symbols +
+`/proc/<pid>/mem`), and `anvil-reference.py` / `forge-reference.py` (the verifier and the
+generate→check→repair loop). **Why remove them:** once `ember.fr`, `anvil.fr`, and `forge.fr`
+were the real, self-hosted versions, the Python ones were redundant *implementations*, and a
+pile of Python quietly contradicts the project's "ship tiny auditable Forth, no runtime
+machinery" point. The **intent** worth keeping — the algorithms — was distilled into prose:
+`anvil-spec.md`, `forge-spec.md`. **What we give up:** they had been *runnable* cross-checks
+(`--selftest`, and an independent ptrace observer of the binary/dictionary layout); now the fr
+versions are canonical and the specs are read, not run. Judged worth it — fr's own
+`ember-trace`/`watch` + the `anvil`/`forge` fr tests exercise everything, a layout regression
+still surfaces in `test.sh --all`, and it's all recoverable from git history.
+**What stays:** `ember-pty` — a Python harness that paces keystrokes through a *pty* to test
+the interactive `ember.fr`/`tetris.fr` (a pipe can't pace input). It's a dev-only test driver,
+not shipped and not a spec; removing it would mean either dropping the interactive TUI tests or
+writing a pty driver in fr. Left as the lone exception for now.
 
 ### `ember.fr` runs with no launcher; `ember-fr` is a one-line shell exec
 `raw-on` does an `ioctl` on fd 0, which fails on a pipe — so `ember.fr` needs a real tty.

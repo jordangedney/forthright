@@ -86,26 +86,27 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the
   prelude. `check{ … }`
   infers a phrase's `( in -- out )` by abstract stack simulation; `def name ( decl ) body ;`
   infers + registers a word's effect (so words compose) and flags mismatches with the
-  declared signature. The project's reason for existing; `anvil-reference.py` is its spec.
+  declared signature. The project's reason for existing; `anvil-spec.md` is its spec.
 - **`forge.fr`** — the generate → check → repair loop, **self-hosted in fr**: a generator
   builds candidate threaded bodies, the self-hosted `anvil` (`check-body`) verifies each
   one's stack effect, shape-valid candidates are `execute`d on examples, and the first
   passing both is "forged". Run: `echo forge | ./fr forge.fr` (forge includes prelude + anvil).
   Needed `execute` (kernel prim, run a CFA), `'` (prelude tick), and the anvil `check-body`
-  refactor (check a compiled body by CFA, not stdin tokens). `forge-reference.py` = Python spec.
+  refactor (check a compiled body by CFA, not stdin tokens). `forge-spec.md` describes the loop.
 
-Naming map: **forthright** (project) · **fr** (the Forth) · **ember**/**ember.fr** (the
-explorer, in Python and now self-hosted) · **anvil** (the verifier) · **forge** (synthesis).
+Naming map: **forthright** (project) · **fr** (the Forth) · **ember.fr** (the self-hosted
+explorer) · **anvil** (the verifier) · **forge** (synthesis).
 
 **File conventions.** Forth source uses the `.fr` extension (the kernel `fr.s` is GNU
 assembler). The project's direction is to **self-host its tooling in fr**, keeping the whole
 trust base small/auditable — `anvil.fr`, `forge.fr`, `lib/term.fr`, `lib/ptrace.fr`, and
 `ember.fr` are all self-hosted; with `syscall6`, even the ptrace debugger backend is in fr.
-The `anvil-reference.py`/`forge-reference.py` *reference specs* track intended behavior and
-**must be kept in sync as those tools gain features**. The explorer runs with no Python
-(`./fr ember.fr`, or the one-line shell `./ember-fr`); `ember-pty` is a Python harness only
-for *scripted* (paced) testing. (A Python/curses `ember` was the original prototype; it was
-removed once `ember.fr` reached parity — see DECISIONS.md.)
+The `anvil-spec.md`/`forge-spec.md` *reference specs* (markdown) describe intended behavior;
+**keep them in sync as those tools gain features**. The explorer runs with no Python
+(`./fr ember.fr`, or the one-line shell `./ember-fr`); the only Python left in the repo is
+`ember-pty`, a test harness that paces keystrokes through a pty (a pipe can't). (A Python/curses
+`ember` and Python `anvil`/`forge` reference *implementations* were removed once the fr versions
+matched them — see DECISIONS.md.)
 
 ## Commands
 
@@ -122,13 +123,13 @@ echo '5 square .' | ./fr lib/prelude.fr         # load a lib module as a file ar
 ./fr ember.fr              # the SELF-HOSTED explorer (it `include`s lib/{prelude,term,ptrace}); type: 5 ' square ember
 ./ember-fr ["3 ' square ember"] # shell launcher (no Python); no arg = bare `ember` (edit prompt)
 ./ember-pty --selftest          # headless pty test of ember.fr; also --edit/--repl/--out-selftest
-./test.sh                       # core suite: kernel/prelude/lib/anvil/forge/term + reference specs
+./test.sh                       # core suite: kernel/prelude/lib/anvil/forge/term
 ./test-ember.sh                 # the explorer's own suite (ptrace.fr, ember.fr under a pty)
 ./test.sh --all                 # both suites
 ```
 
 There is no test framework; `./test.sh` is the one-command answer for the **core**
-(kernel/prelude/lib/anvil/forge/term + the Python reference specs — expect `ALL CHECKS PASSED`).
+(kernel/prelude/lib/anvil/forge/term — expect `ALL CHECKS PASSED`).
 The explorer has its own suite, **`./test-ember.sh`** (ptrace.fr, and ember.fr via `ember-trace`
 (pipe) and `ember-pty` (a paced pty)); `./test.sh --all` runs both.
 

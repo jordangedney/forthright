@@ -25,10 +25,11 @@ TUI apps in fr is ergonomic (`./fr app.fr`). What's *not* done is making the loo
   something a human must read to trust the whole stack. The rule *"if a word can be
   written in fr, it goes in `prelude.fr`, not the kernel"* is the whole game. When
   tempted to add a primitive, ask whether it's truly irreducible.
-- **Keep the reference-spec pattern.** The self-hosted tools that began as Python
-  specs keep them (`anvil-reference.py`, `forge-reference.py`) as cross-checks. Specs are
-  how the fr versions stay honest. (The explorer had a Python/curses prototype `ember`; it
-  was *not* a spec, so once `ember.fr` reached parity it was removed, not kept.)
+- **Keep the tools specified.** `anvil`/`forge` began as Python reference *implementations*;
+  once the fr versions matched them, the Python was retired and the intent distilled into
+  written specs (`anvil-spec.md`, `forge-spec.md`) — keep those in sync as the tools grow, so
+  the algorithm stays readable outside the fr source. (The repo is now Python-free except the
+  `ember-pty` test harness; the Python/curses `ember` prototype was likewise removed at parity.)
 - **Verification is the point, not the generator.** Whatever proposes code (a dumb
   search, an LLM), the guarantee comes from `anvil`. Never let the generator's
   output be trusted without the gate.
@@ -44,10 +45,10 @@ with a real LLM and the project *literally is* its thesis: an AI writes Forth, a
 50-line Forth verifier gates it, failures feed back as repair prompts, and only
 anvil-approved code ships.
 
-- Easiest path: extend `forge-reference.py` (the host-language pipeline — on-thesis
-  there) to call an LLM for candidates, feed each through `fr`+`anvil`, and on
-  `BAD`/`br!` send anvil's verdict back as a repair instruction. Keep `anvil.fr`
-  (in fr) as the gate untouched.
+- Easiest path: a small host-language driver (following `forge-spec.md`) that calls an LLM
+  for candidates, feeds each through `fr`+`anvil`, and on `BAD`/`br!` sends anvil's verdict
+  back as a repair instruction. Keep `anvil.fr` (in fr) as the gate untouched. (Such a driver
+  would re-introduce one script — fine, since it's the *generator*, not the verified artifact.)
 - The striking part to show: the *verdict-driven repair*. Print the dialogue —
   proposal, anvil's exact complaint, the fix — so you can watch the verifier teach
   the generator. That's the thesis as a live conversation.
@@ -135,7 +136,7 @@ That's the whole bet, and it's within reach from here.
 - `forge`: allow `if/else/then` in candidates (anvil already does branch analysis). `forge.fr`
 - `forge`: take the target effect + examples as input instead of hardcoding square. `forge.fr`
 - Push `s= find number` to the prelude; shrink the kernel.            `fr.s` / `prelude.fr`
-- Wire an LLM generator into `forge-reference.py`; print the repair dialogue. `forge-reference.py`
+- Build an LLM generator driver (per `forge-spec.md`) gated by `anvil`; print the repair dialogue.
 - ~~`do … loop` (counted loops) as immediate words~~ — **DONE** (`do loop i j unloop`;
   `?do`/`+loop`/`leave` still TODO). It cut tetris from 13 hand-rolled `begin` loops + 10
   counter variables down to clean `N 0 do … i … loop`.

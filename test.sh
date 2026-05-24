@@ -88,8 +88,6 @@ check "anvil: def ... ok"        "$( ( cat lib/prelude.fr anvil.fr; echo 'def sq
 check "anvil: catches BAD"       "$( ( cat lib/prelude.fr anvil.fr; echo 'def bad ( a b -- c ) + + ;' ) | ./fr )" "BAD"
 check "anvil: branch imbalance"  "$( ( cat lib/prelude.fr anvil.fr; echo 'def x ( n -- n ) 0 < if dup then ;' ) | ./fr )" "br!"
 check "forge: synthesizes dup *" "$( ( cat lib/prelude.fr anvil.fr forge.fr; echo forge ) | ./fr )"    "dup * <"
-check "anvil-reference.py spec"   "$(python3 anvil-reference.py --selftest)"                         "ALL PASS"
-check "forge-reference.py"        "$(python3 forge-reference.py)"                                    "FORGED"
 
 # --all (or -a): also run the explorer suite, folding its result into the exit code.
 case "$1" in
