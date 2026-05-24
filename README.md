@@ -43,7 +43,7 @@ impossible when a human had to sit in the writing seat.
 - *(corpus)* — still open: generate-and-verify at scale to mint a synthetic training
   corpus, the one credible attack on Forth's "no training data" problem.
 
-(Everything below `fr.s` — prelude, anvil, forge, term, ember.fr, ptrace, live — is
+(Everything below `fr.s` — the `lib/` standard library, anvil, forge, ember.fr — is
 written *in fr*, so the whole trust base is auditable. Section "Status" lists it all.)
 
 ## Open questions / known hard parts
