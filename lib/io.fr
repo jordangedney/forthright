@@ -13,6 +13,7 @@ variable zb        8 allot		\ 1-byte scratch for emit-fd
 : close-fd ( fd -- )         0 0 3 syscall3 drop ;	\ close(fd)
 : read-fd  ( fd buf n -- got )   0 syscall3 ;		\ read(fd, buf, n)
 : write-fd ( fd buf n -- got )   1 syscall3 ;		\ write(fd, buf, n)
+: dup2     ( old new -- )    0 0 0 0 33 syscall6 drop ;	\ dup2(old, new)
 : emit-fd  ( c fd -- )       swap zb !  zb 1 write-fd drop ;	\ write one byte to fd
 
 : zpath   ( addr len -- zaddr )		\ copy a string + a NUL into zpathbuf; return it

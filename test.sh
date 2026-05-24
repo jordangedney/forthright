@@ -1,10 +1,9 @@
 #!/bin/sh
 # test.sh — build forthright and run the core checks. Prints PASS/FAIL; exits
 # non-zero if anything failed. This is the one-command answer to "is it still
-# working?" (it runs the real kernel, prelude, anvil, forge, term, and the Python
-# reference specs). The explorer has its own, costlier suite — `./test-ember.sh`
-# (the Python model, the ptrace backend, and ember.fr under a pty); run it too
-# with `./test.sh --all`.
+# working?" (it runs the real kernel, prelude, lib, anvil, forge, and term). The
+# explorer has its own, costlier suite — `./test-ember.sh` (the ptrace backend and
+# ember.fr under a pty); run it too with `./test.sh --all`. No Python anywhere.
 cd "$(dirname "$0")" || exit 2
 fail=0
 pass() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
@@ -57,32 +56,9 @@ rm -f "$LIBF"
 check "lib/random: in range"     "$( echo '42 seed!  5 random% 5 <  5 random% 0 >= and .' | ./fr lib/random.fr )" "-1"
 # --- examples ----------------------------------------------------------------
 check "examples/demo runs"       "$(timeout 5 ./fr examples/demo.fr)"                                  "New game"
-# tetris is interactive (auto-runs); load it under a pty, play a couple of keys, quit.
-check "examples/tetris (pty)"    "$(python3 - <<'PY' 2>/dev/null
-import os,pty,select,time,re
-pid,fd=pty.fork()
-if pid==0:
-    try: os.execv("./fr",["./fr","examples/tetris.fr"])
-    except Exception: os._exit(127)
-def rd(t):
-    o=b"";dl=time.time()+t
-    while time.time()<dl:
-        r,_,_=select.select([fd],[],[],max(0,dl-time.time()))
-        if not r: break
-        try: c=os.read(fd,65536)
-        except OSError: break
-        if not c: break
-        o+=c
-    return o
-out=rd(0.8)
-for k in (b' ',b'l',b'h',b'\x1b[A',b' '): os.write(fd,k); out+=rd(0.2)
-os.write(fd,b'q'); out+=rd(0.8)
-try: os.close(fd); os.waitpid(pid,0)
-except OSError: pass
-clean=re.sub(rb'\x1b\[[0-9;?]*[A-Za-z]',b'',out)
-print("TETRIS OK" if (b'?' not in clean[:120] and b'game over' in clean and b'\xe2\x96\x88' in out) else "TETRIS FAIL")
-PY
-)" "TETRIS OK"
+# tetris is interactive (auto-runs); ember-test.fr loads it under an fr-native pty,
+# plays a couple of keys, quits — asserting it drew blocks and exited cleanly.
+check "examples/tetris (pty)"    "$(echo tetris | timeout 40 ./fr ember-test.fr)"                      "TETRIS OK"
 check "term: ANSI cursor+colour"  "$( ( cat lib/prelude.fr lib/term.fr; echo '7 12 1 paint' ) | ./fr )"        "[7;12H"
 check "anvil: def ... ok"        "$( ( cat lib/prelude.fr anvil.fr; echo 'def sq ( n -- n ) dup * ;' ) | ./fr )" "ok"
 check "anvil: catches BAD"       "$( ( cat lib/prelude.fr anvil.fr; echo 'def bad ( a b -- c ) + + ;' ) | ./fr )" "BAD"

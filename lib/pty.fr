@@ -1,0 +1,98 @@
+include lib/prelude.fr			\ depends on: prelude, io, time, fmt (u>str), ptrace (fork/wait/kill)
+include lib/fmt.fr			\ fmt pulls in math
+include lib/io.fr
+include lib/time.fr
+include lib/ptrace.fr
+
+\ pty.fr — spawn `./fr <file>` on a pseudo-terminal and drive it: send keystrokes,
+\ capture the output, assert substrings. This is what lets the test suite exercise
+\ the *interactive* TUIs (ember.fr, tetris.fr) with no host language — a plain pipe
+\ can't, because the child's first read would swallow the whole canned input at once.
+\
+\ A pty is a master/slave pair: the child runs on the slave (its tty), the parent
+\ reads/writes the master. We open /dev/ptmx (master), unlock + name the slave with
+\ two ioctls, open /dev/pts/<N> (slave), fork, and in the child redirect 0/1/2 to the
+\ slave and execve a fresh fr. The master is opened O_NONBLOCK so draining never hangs.
+
+\ --- ioctl request numbers (Linux/x86-64, computed; fr parses decimal only) -------
+1074025521 constant TIOCSPTLCK		\ _IOW('T',0x31,int)  — unlock the slave (arg: *int = 0)
+2147767344 constant TIOCGPTN		\ _IOR('T',0x30,uint) — get the slave number (arg: *uint)
+21524      constant TIOCSWINSZ		\ 0x5414 — set the window size (arg: *winsize)
+2050       constant PTMX-FLAGS		\ O_RDWR(2) | O_NONBLOCK(2048)
+
+variable ptm				\ master fd
+variable pts				\ slave fd
+variable ptbuf  8 allot			\ scratch int for the two ioctls
+variable wsz    8 allot			\ struct winsize { u16 rows, cols, xpix, ypix }
+variable ptpath 64 allot		\ "/dev/pts/<N>", NUL-terminated
+variable nlen				\ length of <N>'s decimal text
+
+: ioctl ( fd req argp -- ret )  16 syscall3 ;
+
+: pty-open ( -- )			\ open master+slave, return with ptm/pts set
+  s" /dev/ptmx" zpath  PTMX-FLAGS 0 2 syscall3  ptm !	\ open(/dev/ptmx, O_RDWR|O_NONBLOCK)
+  0 ptbuf !  ptm @ TIOCSPTLCK ptbuf ioctl drop		\ TIOCSPTLCK 0 — unlock slave
+  0 ptbuf !  ptm @ TIOCGPTN  ptbuf ioctl drop		\ TIOCGPTN — ptbuf gets N
+  wsz 8 0 fill  24 wsz c!  80 wsz 2 + c!			\ 24 rows x 80 cols
+  ptm @ TIOCSWINSZ wsz ioctl drop
+  s" /dev/pts/" ptpath swap cmove			\ build the slave path
+  ptbuf @ u>str  nlen !					\ ( naddr ) decimal of N, length saved
+  ptpath 9 +  nlen @  cmove				\ append it after "/dev/pts/"
+  0  ptpath 9 + nlen @ +  c!				\ NUL-terminate
+  ptpath 2 0 2 syscall3  pts !  ;			\ open(/dev/pts/N, O_RDWR)
+
+\ --- spawn ./fr <file> on the slave ------------------------------------------------
+variable frpath 8 allot			\ "./fr\0"
+variable argf   64 allot		\ the .fr file path, NUL-terminated
+variable argv   3 cells allot		\ { &frpath, &argf, NULL }
+variable envp   1 cells allot		\ { NULL }
+
+: pty-spawn ( file-addr file-len -- )	\ fork; child execve's ./fr <file> on the slave tty
+  dup >r  argf swap cmove  0 argf r> + c!		\ file -> argf (NUL-terminated)
+  s" ./fr" frpath swap cmove  0 frpath 4 + c!		\ "./fr\0"
+  frpath argv !  argf argv cell+ !  0 argv 2 cells + !
+  0 envp !
+  fork dup 0= if					\ --- child ---
+    drop
+    0 0 0 0 0 0 112 syscall6 drop			\ setsid()
+    pts @ 0 dup2  pts @ 1 dup2  pts @ 2 dup2		\ stdin/out/err -> slave
+    ptm @ close-fd  pts @ close-fd
+    frpath argv envp 59 syscall3 drop			\ execve(./fr, argv, envp) — no return
+    bye
+  else  child !  pts @ close-fd  then ;			\ --- parent --- keep master, drop slave
+
+\ --- capture + drive ---------------------------------------------------------------
+variable cap  262144 allot		\ accumulated child output (capped; needles recur per frame)
+variable cap-len
+variable rdb  4096 allot
+variable got
+
+: cap-reset ( -- )  0 cap-len ! ;
+: pty-drain ( -- )			\ append everything readable on the master (non-blocking)
+  begin  ptm @ rdb 4096 read-fd  got !  got @ 0 >  while
+    cap-len @ got @ + 262000 < if
+      rdb  cap cap-len @ +  got @  cmove
+      cap-len @ got @ + cap-len !
+    then
+  repeat ;
+
+: pty-raw  ( addr len -- )  ptm @ rot rot write-fd drop ;	\ write to master, no wait
+: pty-wait ( ms -- )        sleep-ms  pty-drain ;		\ let the child run, then drain
+: pty-keys ( addr len -- )  pty-raw  150 pty-wait ;		\ raw keystrokes
+variable nlb 1 allot  10 nlb c!
+: pty-line ( addr len -- )  pty-raw  nlb 1 pty-raw  250 pty-wait ;	\ a line + newline
+
+: pty-start ( file-addr file-len -- )  cap-reset  pty-open  pty-spawn  400 pty-wait ;
+: pty-stop  ( -- )  child @ 9 kill  pwait drop  ptm @ close-fd ;
+
+\ --- assert: is a substring present in the capture? --------------------------------
+variable na  variable nl  variable ci
+: contains? ( needle-addr needle-len -- f )
+  nl !  na !  0 ci !
+  begin  ci @  cap-len @ nl @ -  <=  while
+    cap ci @ +  nl @  na @  nl @  s=  if  -1 exit  then
+    ci @ 1+ ci !
+  repeat  0 ;
+
+: result ( name-addr name-len found? -- )		\ print "EMBER <name> PASS|FAIL"
+  >r  ." EMBER " type space  r> if ." PASS" else ." FAIL" then  cr ;

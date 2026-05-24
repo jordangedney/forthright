@@ -1,9 +1,9 @@
 #!/bin/sh
 # test-ember.sh — the explorer's own test suite. Split out from test.sh because
-# ember is the one subsystem with several backends (the Python model, the ptrace
-# backend, and the self-hosted ember.fr driven under a pty), and exercising them
-# costs more than the rest of the project combined. Run it directly, or via
-# `./test.sh --all`. Prints PASS/FAIL; exits non-zero if anything failed.
+# ember exercises the ptrace backend and the full-screen TUI under a pseudo-terminal,
+# which costs more than the rest of the project combined. The interactive checks run
+# through `ember-test.fr` — an fr-native pty driver (no Python anywhere). Run it
+# directly, or via `./test.sh --all`. Prints PASS/FAIL; exits non-zero on any failure.
 cd "$(dirname "$0")" || exit 2
 fail=0
 pass() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
@@ -33,13 +33,15 @@ check "ember.fr: follows if/then (abs -5)"      "$( ( $LT; echo ": abs dup 0< if
 check "ember.fr: steps into colon (cube 3)"     "$( ( $LT; echo ": cube dup square * ;  3 ' cube ember-trace" ) | ./fr )"  "27"
 
 # --- end-to-end TUIs (slower: a pty and a ptraced process) ---------------------
-check "ember.fr: pty stepper 5->25"     "$(timeout 30 ./ember-pty --selftest)"        "EMBER PASS"
-check "ember.fr: bare boots to prompt"  "$(timeout 30 ./ember-pty --prompt-selftest)" "EMBER PROMPT PASS"
-check "ember.fr: live edit re-targets"  "$(timeout 30 ./ember-pty --edit-selftest)"   "EMBER EDIT PASS"
-check "ember.fr: bare expr (4 4 +)"     "$(timeout 30 ./ember-pty --expr-selftest)"   "EMBER EXPR PASS"
-check "ember.fr: autoplay runs to rest"  "$(timeout 30 ./ember-pty --auto-selftest)"   "EMBER AUTO PASS"
-check "ember.fr: captures stdout (OUT)"  "$(timeout 30 ./ember-pty --out-selftest)"    "EMBER OUT PASS"
-check "ember.fr: REPL stack persists"    "$(timeout 30 ./ember-pty --repl-selftest)"   "EMBER REPL PASS"
+# ember-test.fr (fr, via lib/pty.fr) spawns ./fr ember.fr on a real pty, paces keys,
+# captures the frames, and asserts substrings — the no-Python replacement for ember-pty.
+check "ember.fr: pty stepper 5->25"     "$(echo step   | timeout 40 ./fr ember-test.fr)" "EMBER STEP PASS"
+check "ember.fr: bare boots to prompt"  "$(echo prompt | timeout 40 ./fr ember-test.fr)" "EMBER PROMPT PASS"
+check "ember.fr: live edit re-targets"  "$(echo edit   | timeout 40 ./fr ember-test.fr)" "EMBER EDIT PASS"
+check "ember.fr: bare expr (4 4 +)"     "$(echo expr   | timeout 40 ./fr ember-test.fr)" "EMBER EXPR PASS"
+check "ember.fr: autoplay runs to rest" "$(echo auto   | timeout 40 ./fr ember-test.fr)" "EMBER AUTO PASS"
+check "ember.fr: captures stdout (OUT)" "$(echo out    | timeout 40 ./fr ember-test.fr)" "EMBER OUT PASS"
+check "ember.fr: REPL stack persists"   "$(echo repl   | timeout 40 ./fr ember-test.fr)" "EMBER REPL PASS"
 
 echo
 if [ "$fail" -eq 0 ]; then printf '\033[32mALL EMBER CHECKS PASSED\033[0m\n'; else printf '\033[31mSOME EMBER CHECKS FAILED\033[0m\n'; fi

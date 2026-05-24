@@ -140,18 +140,22 @@ machinery" point. The **intent** worth keeping — the algorithms — was distil
 versions are canonical and the specs are read, not run. Judged worth it — fr's own
 `ember-trace`/`watch` + the `anvil`/`forge` fr tests exercise everything, a layout regression
 still surfaces in `test.sh --all`, and it's all recoverable from git history.
-**What stays:** `ember-pty` — a Python harness that paces keystrokes through a *pty* to test
-the interactive `ember.fr`/`tetris.fr` (a pipe can't pace input). It's a dev-only test driver,
-not shipped and not a spec; removing it would mean either dropping the interactive TUI tests or
-writing a pty driver in fr. Left as the lone exception for now.
+**The last Python — the pty test harness — was ported to fr too.** The interactive
+`ember.fr`/`tetris.fr` can't be tested through a plain pipe (the child's first read swallows
+the canned input), so they need a *pty* with paced keystrokes. That was the one remaining
+Python file (`ember-pty`). It's now `lib/pty.fr` + `ember-test.fr`: fr opens `/dev/ptmx`,
+unlocks + names the slave with two `ioctl`s, `fork`s, and in the child `setsid`/`dup2`s the
+slave onto 0/1/2 and `execve`s a fresh `./fr ember.fr`; the parent (master `O_NONBLOCK`) paces
+keys, drains the frames, and asserts substrings. `syscall6` made this reachable — the same
+primitive that put ptrace in fr now puts the *test harness* in fr. The repo is Python-free.
 
 ### `ember.fr` runs with no launcher; `ember-fr` is a one-line shell exec
 `raw-on` does an `ioctl` on fd 0, which fails on a pipe — so `ember.fr` needs a real tty.
 But for *interactive* use the **terminal already is that tty**, and the kernel loads the
 library from `argv`, so launching is just `./fr ember.fr` —
-no Python (`ember-fr` is exactly that one-line `exec`). The Python that *was* `ember-fr`
-only existed to pace scripted keystrokes through a pty (a pipe can't — fr's first read
-would swallow them); that's purely a *test* concern, now isolated in `ember-pty`. **Why
+no Python (`ember-fr` is exactly that one-line `exec`). Pacing scripted keystrokes through a
+pty (a pipe can't — fr's first read would swallow them) is purely a *test* concern, now handled
+by the fr-native `lib/pty.fr` + `ember-test.fr`. **Why
 `q` calls `bye`:** the explorer is a single-shot view (like `htop`), so quitting it quits
 fr cleanly. (Re-targeting via the `e` edit line kills the child and forks a fresh one.)
 **Spelled-out labels** (`call` `code` `data` via per-char `emit`) predate fr's `s"`/`."`

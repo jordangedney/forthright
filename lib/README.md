@@ -45,8 +45,9 @@ but `include` is the ergonomic way.)
 | `draw.fr`    | panels / rules / rects on term | `panel hline vline clear-rect at-type` |
 | `tui.fr`     | widgets | `label status-bar menu-draw menu-run accept` |
 | `time.fr`    | clock + sleep | `now-ms sleep-ms` |
-| `io.fr`      | files | `open-r open-w read-fd write-fd close-fd zpath` |
+| `io.fr`      | files | `open-r open-w read-fd write-fd close-fd dup2 zpath` |
 | `ptrace.fr`  | process control + ptrace | `fork wait4 traceme getregs peekdata watch` |
+| `pty.fr`     | spawn a program on a pty + drive it (the no-Python test harness for the TUIs) | `pty-start pty-line pty-keys pty-wait contains? pty-stop` |
 
 ## Conventions & gotchas
 
@@ -61,9 +62,10 @@ but `include` is the ergonomic way.)
 
 ## Status
 
-`prelude math string fmt random term key draw time io ptrace` are implemented and tested
-(`./test.sh` covers them). `tui` has `label/status-bar/menu/accept` working; richer
-widgets (scrolling lists, multi-field forms) are the next layer to grow here.
+`prelude math string fmt random term key draw time io ptrace pty` are implemented and
+tested (`./test.sh` covers them; `pty` drives the interactive-TUI checks in `./test-ember.sh`).
+`tui` has `label/status-bar/menu/accept` working; richer widgets (scrolling lists,
+multi-field forms) are the next layer to grow here.
 
 See **`examples/`** for programs built on the lib: `demo.fr` (a static sample screen —
 panel + menu + an `fmt` number table) and **`tetris.fr`** (a full playable Tetris:

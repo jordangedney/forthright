@@ -1,0 +1,74 @@
+include lib/pty.fr
+
+\ ember-test.fr — the headless test driver for the interactive TUIs, written in fr
+\ (replaces the old Python `ember-pty`). It uses lib/pty.fr to spawn `./fr ember.fr`
+\ (or tetris) on a real pseudo-terminal, paces keystrokes, captures the child's
+\ output, and asserts substrings. Each scenario is a word; pick one from stdin:
+\
+\     echo step | ./fr ember-test.fr        \ step `5 square` to 25, must rest
+\     echo repl | ./fr ember-test.fr        \ result carries across edit-line entries
+\
+\ The child runs on the pty slave (its tty, so `raw-on` engages); this driver reads
+\ the master. Needles use the data panel's top-row label "<n>  top" (line 250 of
+\ ember.fr) — precise, no escape-sequence collisions.
+
+variable spk 1 allot  32 spk c!				\ a space keystroke
+variable upk 3 allot  27 upk c! 91 upk 1+ c! 65 upk 2 + c!	\ ESC [ A — arrow up
+variable blk 3 allot  226 blk c! 150 blk 1+ c! 136 blk 2 + c!	\ one "█" cell (UTF-8 E2 96 88)
+
+variable crb 1 allot  13 crb c!
+: pty-cr   ( addr len -- )  pty-raw  crb 1 pty-raw  300 pty-wait ;	\ submit an ember edit line (CR)
+: steps    ( n -- )  0 do  s" s" pty-keys  loop ;			\ press `s` n times
+
+\ --- scenarios ---------------------------------------------------------------------
+: step ( -- )			\ step 5 square to 25 on the real engine; it must REST, not exit
+  s" ember.fr" pty-start
+  s" 5 ' square ember" pty-line  300 pty-wait
+  8 steps  300 pty-wait
+  s" STEP"  s" 25  top" contains?  s" exited" contains? 0= and  result  pty-stop ;
+
+: prompt ( -- )			\ bare `ember` boots to the ok> prompt; type a target there
+  s" ember.fr" pty-start
+  s" ember" pty-line  400 pty-wait
+  s" 5 square" pty-cr  10 steps  300 pty-wait
+  s" PROMPT"  s" 25  top" contains?  s" square" contains? and  result  pty-stop ;
+
+: edit ( -- )			\ re-target square(5) -> square(3) via the edit line; run-to-end -> 9
+  s" ember.fr" pty-start
+  s" 5 ' square ember" pty-line  300 pty-wait
+  s" e" pty-keys  s" 3 square" pty-cr
+  s" r" pty-keys  400 pty-wait
+  s" EDIT"  s" 9  top" contains?  s" square" contains? and  result  pty-stop ;
+
+: expr ( -- )			\ a bare expression must compile + step (regression: 4 4 + -> + ?)
+  s" ember.fr" pty-start
+  s" ember" pty-line  400 pty-wait
+  s" 4 4 +" pty-cr  10 steps  300 pty-wait
+  s" EXPR"  s" 8  top" contains?  s" + ?" contains? 0= and  result  pty-stop ;
+
+: auto ( -- )			\ press `a`; autoplay self-steps to 25 and rests
+  s" ember.fr" pty-start
+  s" 5 ' square ember" pty-line  300 pty-wait
+  s" a" pty-raw  16 0 do  250 pty-wait  loop
+  s" AUTO"  s" 25  top" contains?  s" exited" contains? 0= and  result  pty-stop ;
+
+: out ( -- )			\ a printing word's stdout is captured into the OUTPUT panel
+  s" ember.fr" pty-start
+  s" : shout 65 emit 66 emit 67 emit ;  ' shout ember" pty-line  300 pty-wait
+  18 steps  300 pty-wait
+  s" OUT"  s" ABC" contains?  result  pty-stop ;
+
+: repl ( -- )			\ result carries across entries: 5 5 5 + rests at 10, then 3 * -> 30
+  s" ember.fr" pty-start
+  s" ember" pty-line  400 pty-wait
+  s" 5 5 5 +" pty-cr  10 steps  300 pty-wait
+  s" e" pty-keys  s" 3 *" pty-cr  10 steps  300 pty-wait
+  s" REPL"  s" 10  top" contains?  s" 30  top" contains? and  s" exited" contains? 0= and  result  pty-stop ;
+
+: tetris ( -- )			\ smoke: tetris loads, draws blocks, plays a few keys, quits cleanly
+  s" examples/tetris.fr" pty-start  600 pty-wait
+  spk 1 pty-keys  s" l" pty-keys  s" h" pty-keys
+  upk 3 pty-keys  spk 1 pty-keys
+  s" q" pty-keys  500 pty-wait
+  blk 3 contains?  s" game over" contains? and
+  if  ." TETRIS OK"  else  ." TETRIS FAIL"  then  cr  pty-stop ;

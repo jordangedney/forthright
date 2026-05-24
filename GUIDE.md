@@ -29,7 +29,7 @@ and **forges** its own verified code.
 | `lib/ptrace.fr` | ptrace *in fr* (`syscall6`); `watch` drives the real engine — a self-hosted NativeVM |
 | `ember.fr` | the **self-hosted explorer**: a visual stepper driving the *real* engine via ptrace |
 | `ember-fr` | shell launcher: runs `ember.fr`; no arg = bare `ember` (edit prompt), or pass a command |
-| `ember-pty` | Python harness for *scripted* (paced) pty testing of `ember.fr` |
+| `lib/pty.fr`, `ember-test.fr` | fr-native pty harness for *scripted* (paced) testing of the TUIs (no Python) |
 | `examples/` | programs on the lib: `demo.fr`, `tetris.fr` |
 | `build.sh` | `as` + `ld` → `fr` |
 | `anvil-spec.md`, `forge-spec.md` | reference specs (markdown) for `anvil.fr`/`forge.fr` |
@@ -250,7 +250,8 @@ The generator stands in for an AI; the point is that nothing is accepted unless
 **One command: `./test.sh`** — builds and runs the core checks (kernel, prelude, lib,
 anvil, forge, term), printing PASS/FAIL (exit non-zero on any failure). The explorer is
 costlier to test, so it has its own suite, **`./test-ember.sh`** (ptrace.fr, and ember.fr
-via `ember-trace`/`ember-pty`); `./test.sh --all` runs both. Run these first; the individual
+via `ember-trace` and the fr-native pty driver `ember-test.fr`); `./test.sh --all` runs both.
+Run these first; the individual
 commands below are for looking closely at one. (`DECISIONS.md` records *why* the design is
 the way it is — read it before changing something that looks odd; `anvil-spec.md`/`forge-spec.md`
 describe what those tools should compute.)

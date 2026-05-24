@@ -28,8 +28,9 @@ TUI apps in fr is ergonomic (`./fr app.fr`). What's *not* done is making the loo
 - **Keep the tools specified.** `anvil`/`forge` began as Python reference *implementations*;
   once the fr versions matched them, the Python was retired and the intent distilled into
   written specs (`anvil-spec.md`, `forge-spec.md`) — keep those in sync as the tools grow, so
-  the algorithm stays readable outside the fr source. (The repo is now Python-free except the
-  `ember-pty` test harness; the Python/curses `ember` prototype was likewise removed at parity.)
+  the algorithm stays readable outside the fr source. (The repo is now **entirely Python-free** —
+  even the scripted pty test harness is fr, `lib/pty.fr` + `ember-test.fr`; the Python/curses
+  `ember` prototype and the `ember-pty` harness were both removed once their fr replacements landed.)
 - **Verification is the point, not the generator.** Whatever proposes code (a dumb
   search, an LLM), the guarantee comes from `anvil`. Never let the generator's
   output be trusted without the gate.

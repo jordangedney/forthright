@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **forthright** is an experiment toward an "AI writes it, a verifier checks it, ship tiny
 auditable Forth" pipeline (see README.md for the thesis). Concretely the repo holds the
-kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the pieces:
+kernel `fr` plus a stack of self-hosted `.fr` tools (the whole repo is Python-free); the pieces:
 
 - **`fr`** — a freestanding indirect-threaded-code (ITC) Forth for x86-64 Linux, written
   as a single GNU-assembler file `fr.s`. No libc, no runtime: raw syscalls + threaded code.
@@ -103,10 +103,12 @@ trust base small/auditable — `anvil.fr`, `forge.fr`, `lib/term.fr`, `lib/ptrac
 `ember.fr` are all self-hosted; with `syscall6`, even the ptrace debugger backend is in fr.
 The `anvil-spec.md`/`forge-spec.md` *reference specs* (markdown) describe intended behavior;
 **keep them in sync as those tools gain features**. The explorer runs with no Python
-(`./fr ember.fr`, or the one-line shell `./ember-fr`); the only Python left in the repo is
-`ember-pty`, a test harness that paces keystrokes through a pty (a pipe can't). (A Python/curses
-`ember` and Python `anvil`/`forge` reference *implementations* were removed once the fr versions
-matched them — see DECISIONS.md.)
+(`./fr ember.fr`, or the one-line shell `./ember-fr`). **The repo is entirely Python-free** —
+even the scripted pty test harness is fr (`lib/pty.fr` + `ember-test.fr`, which spawns
+`./fr ember.fr` on a real pseudo-terminal, paces keystrokes, and asserts on the captured frames;
+a plain pipe can't, since the child's first read would swallow the canned input). (A Python/curses
+`ember`, the Python `anvil`/`forge` reference *implementations*, and the Python `ember-pty` were
+all removed once the fr versions matched them — see DECISIONS.md.)
 
 ## Commands
 
@@ -122,7 +124,7 @@ echo '5 square .' | ./fr lib/prelude.fr         # load a lib module as a file ar
 
 ./fr ember.fr              # the SELF-HOSTED explorer (it `include`s lib/{prelude,term,ptrace}); type: 5 ' square ember
 ./ember-fr ["3 ' square ember"] # shell launcher (no Python); no arg = bare `ember` (edit prompt)
-./ember-pty --selftest          # headless pty test of ember.fr; also --edit/--repl/--out-selftest
+echo step | ./fr ember-test.fr  # fr-native pty test of ember.fr; also: prompt edit expr auto out repl tetris
 ./test.sh                       # core suite: kernel/prelude/lib/anvil/forge/term
 ./test-ember.sh                 # the explorer's own suite (ptrace.fr, ember.fr under a pty)
 ./test.sh --all                 # both suites
@@ -131,7 +133,7 @@ echo '5 square .' | ./fr lib/prelude.fr         # load a lib module as a file ar
 There is no test framework; `./test.sh` is the one-command answer for the **core**
 (kernel/prelude/lib/anvil/forge/term — expect `ALL CHECKS PASSED`).
 The explorer has its own suite, **`./test-ember.sh`** (ptrace.fr, and ember.fr via `ember-trace`
-(pipe) and `ember-pty` (a paced pty)); `./test.sh --all` runs both.
+(pipe) and `ember-test.fr` (an fr-native paced pty)); `./test.sh --all` runs both.
 
 ## fr.s architecture (the Forth kernel)
 
