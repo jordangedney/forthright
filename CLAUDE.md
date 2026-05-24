@@ -93,10 +93,13 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (the whole repo is Python-fr
   `do/loop`, *declared* recursion (the self-call assumes the decl), and **cell kinds** — a
   conservative type layer (number/address/flag/unknown, riding on the height sim) where
   `@ ! c@ c!` need an address, `* / mod` reject address/flag operands, and `+` rejects
-  address+address; kinds flow from literals, comparisons, and kind-named decl inputs
-  (`addr`/`n`/`flag`), and *unknown is absorbing* so false positives are essentially nil. It
-  also **shadows `variable`/`constant`** (building the real word *and* registering its name), so
-  it checks *stateful* code instead of flagging the variable unknown. Sound for the structured
+  address+address; kinds flow from literals, comparisons, kind-named decl inputs *and outputs*
+  (`addr`/`n`/`flag`), and a word **advertises its output kind to callers** (a `variable`
+  produces an address; `def mkbuf ( -- addr ) … ;` lets `mkbuf @` typecheck) — checked too: a
+  body that returns the wrong address-ness vs its declared output is `ty!`. *Unknown is
+  absorbing* (and num/flag are interchangeable) so false positives are essentially nil. It also
+  **shadows `variable`/`constant`** (building the real word *and* registering its name), so it
+  checks *stateful* code instead of flagging the variable unknown. Sound for the structured
   code fr produces; proves **shape (+ a little kind), not value**. The reason the project
   exists; `anvil-spec.md` is its spec.
 - **`forge.fr`** — the generate → check → repair loop, **self-hosted in fr**: a generator

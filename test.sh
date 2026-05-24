@@ -76,6 +76,8 @@ check "anvil: store needs address" "$(echo 'check{ 5 6 ! }'                     
 check "anvil: * rejects a flag"    "$(echo 'check{ 1 2 < 3 * }'                       | ./fr anvil.fr)" "ty!"
 check "anvil: knows variables"     "$(echo 'variable c  def b ( -- ) c @ 1+ c ! ;'   | ./fr anvil.fr)" "ok"
 check "anvil: division by zero"    "$(echo 'check{ 5 0 / }'                           | ./fr anvil.fr)" "/0!"
+check "anvil: output kind checked" "$(echo 'def f ( -- addr ) 5 ;'                    | ./fr anvil.fr)" "ty!"
+check "anvil: out-kind propagates" "$(echo 'variable v  def g ( -- ) v 2 * drop ;'    | ./fr anvil.fr)" "ty!"
 check "forge: synthesizes dup *"   "$(echo forge | ./fr forge.fr)"                                    "dup *"
 
 # --all (or -a): also run the explorer suite, folding its result into the exit code.

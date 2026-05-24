@@ -47,7 +47,8 @@ here dup unkbase ! unkp ! 400 allot
 
 \ --- simulation + scratch state ----------------------------------------------
 variable hgt   variable lo   variable unk   variable pp
-variable fcons variable fprod variable ffound
+variable fcons variable fprod variable fokind variable ffound   \ tlookup results (incl. out-kind)
+variable ro    variable dok  variable iok    \ register out-kind; declared & inferred output kind
 variable q-a   variable q-n           \ tlookup query
 variable tok-a variable tok-n         \ current token
 variable cn-a  variable cn-n          \ copy-name source
@@ -88,16 +89,16 @@ variable ui                           \ .unknowns iterator
     cn-a @ c@  np @ c!
     cn-a @ 1+ cn-a !   np @ 1+ np !   cn-n @ 1- cn-n !
   repeat ;
-: register ( cfa addr len cons prod -- )         \ entry: [cfa, name-ptr, len, cons, prod]
-  rg-p !  rg-c !  rg-len !                        \ ( cfa addr )
+: register ( cfa addr len cons prod okind -- )    \ entry: [cfa, name-ptr, len, cons, prod, okind]
+  ro !  rg-p !  rg-c !  rg-len !                   \ ( cfa addr )
   rg-len @ copy-name                              \ ( cfa ptr )
   swap ,e  ,e                                     \ cfa, name-ptr
-  rg-len @ ,e   rg-c @ ,e   rg-p @ ,e ;            \ len, cons, prod
-: prim ( cons prod -- )                          \ name follows; record its CFA too
+  rg-len @ ,e   rg-c @ ,e   rg-p @ ,e   ro @ ,e ;  \ len, cons, prod, out-kind
+: prim ( cons prod -- )                          \ name follows; record its CFA, out-kind unknown
   rg-p ! rg-c !
   word 2dup find                                  \ ( addr len cfa )
   rot rot                                         \ ( cfa addr len )
-  rg-c @ rg-p @  register ;
+  rg-c @ rg-p @  0  register ;                     \ 0 = K? (unknown out-kind; K? is defined later)
 
 \ --- cell-kind layer: a kind for every abstract cell, indexed by height ------
 \ astk[ABASE + h] is the kind of the cell at height h (h<0 = a consumed input). The
@@ -124,18 +125,19 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
   pp @ begin dup 0 > while                       \ produced cells (heights hgt-1..hgt-prod) default K?
     dup hgt @ swap -  K? swap k!h  1- repeat drop ;
 
-: tlookup ( addr len -- cons prod flag )         \ look up a name's effect
+: tlookup ( addr len -- cons prod okind flag )   \ look up a name's effect (entries are 48 bytes)
   q-n !  q-a !  0 ffound !
   tbase @
   begin  dup tp @ <  while
     dup 8 + @  over 16 + @  q-a @ q-n @  s=  if    \ entry: name-ptr@+8, len@+16
       dup 24 + @ fcons !
       dup 32 + @ fprod !
+      dup 40 + @ fokind !
       -1 ffound !
     then
-    40 +
+    48 +
   repeat  drop
-  ffound @  if  fcons @ fprod @ -1  else  0 0 0  then ;
+  ffound @  if  fcons @ fprod @ fokind @ -1  else  0 0 0 0  then ;
 
 : tlookup-cfa ( cfa -- cons prod flag )          \ look up by compiled CFA (entry@+0)
   kcfa !  0 ffound !
@@ -146,7 +148,7 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
       dup 32 + @ fprod !
       -1 ffound !
     then
-    40 +
+    48 +
   repeat  drop
   ffound @  if  fcons @ fprod @ -1  else  0 0 0  then ;
 
@@ -311,8 +313,9 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
   s" <=" tok= if 2 1 apply kflag  exit then
   s" >=" tok= if 2 1 apply kflag  exit then
   s" 0=" tok= if 1 1 apply kflag  exit then
-  t.str tlookup                                   \ otherwise: a known word (height only)
-  if  apply  else  2drop  t.str unk!  then ;       \ or unknown (record by name)
+  t.str tlookup                                   \ otherwise: a known word ( cons prod okind flag )
+  if  >r apply  r>  dup K? = if drop else kset then  \ apply height, then set top to its out-kind
+  else  2drop drop  t.str unk!  then ;             \ or unknown (record by name)
 
 \ --- finalize + reports ------------------------------------------------------
 : finalize ( -- )                                \ end-of-phrase consistency checks
@@ -346,7 +349,9 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
   name-a @ name-n @ type space
   cons-i @ prod-i @ .eff
   has-decl @  if
-    cons-i @ din @ =  prod-i @ dout @ =  and  if    \ arity matches the declaration…
+    dok @ K? = 0=  iok @ K? = 0=  and             \ both output kinds known, and exactly one is an
+    dok @ addr? iok @ addr? = 0=  and  if  bad-ty  then  \ address -> returns wrong kind (num/flag are
+    cons-i @ din @ =  prod-i @ dout @ =  and  if    \ interchangeable, so only address mismatches flag)
       clean? if  okmsg  then                          \ …and nothing else complained -> ok
     else  badmsg  then                                \ arity disagrees -> BAD (the headline)
   then
@@ -370,19 +375,19 @@ variable dinkbuf 64 cells allot  variable dki    \ declared input kinds, in orde
   s" u"    tok= if  KN exit then
   s" flag" tok= if  KF exit then
   K? ;
-: parse-decl ( -- )       \ called just after reading '(' ; counts in/out, seeds input kinds
-  -1 has-decl !  0 din !  0 dout !  0 dki !
+: parse-decl ( -- )       \ called just after reading '(' ; counts in/out, seeds in/out kinds
+  -1 has-decl !  0 din !  0 dout !  0 dki !  K? dok !
   begin  read-tok  dd? 0=  while
     decl-kind  dinkbuf dki @ cells + !  dki @ 1+ dki !  din @ 1+ din !  repeat
-  begin  read-tok  rp? 0=  while  dout @ 1+ dout !  repeat
+  begin  read-tok  rp? 0=  while  decl-kind dok !  dout @ 1+ dout !  repeat  \ dok = top output's kind
   0 dki !                                          \ place input kinds below entry: token j -> height j-din
   begin  dki @ din @ <  while
     dinkbuf dki @ cells + @   dki @ din @ -  k!h  dki @ 1+ dki !  repeat ;
 
-: pre-register ( -- )     \ register the DECLARED effect before the body, so self-calls check
+: pre-register ( -- )     \ register the DECLARED effect (incl. out-kind) before the body
   tp @ def-entry !
-  0 name-a @ name-n @ din @ dout @ register ;
-: finish-register ( -- )  \ overwrite the pre-registered effect with the inferred one
+  0 name-a @ name-n @ din @ dout @ dok @ register ;
+: finish-register ( -- )  \ overwrite the pre-registered effect with the inferred arity (keep dok)
   cons-i @ def-entry @ 24 + !   prod-i @ def-entry @ 32 + ! ;
 
 : def ( -- )              \ def name [ ( in -- out ) ] body ;
@@ -392,9 +397,9 @@ variable dinkbuf 64 cells allot  variable dki    \ declared input kinds, in orde
   read-tok  lp? if  parse-decl  read-tok  then
   has-decl @ if  pre-register  then                \ recursion: declared self-effect
   begin  semi? 0=  while  classify  read-tok  repeat
-  lo @ negate cons-i !  cons-i @ hgt @ + prod-i !
-  has-decl @ if  finish-register
-  else  0 name-a @ name-n @ cons-i @ prod-i @ register  then
+  lo @ negate cons-i !  cons-i @ hgt @ + prod-i !  topk iok !   \ inferred top-output kind
+  has-decl @ if  finish-register                   \ keeps the declared out-kind for callers
+  else  0 name-a @ name-n @ cons-i @ prod-i @ iok @ register  then  \ no decl: advertise inferred
   report-def ;
 
 \ --- the primitive effect table ( consumes produces prim <name> ) ------------
@@ -433,6 +438,6 @@ variable dinkbuf 64 cells allot  variable dki    \ declared input kinds, in orde
 \ kernel word runs it's `latest`, so we read its name from the dictionary header to register it.
 ' variable  constant kvar
 ' constant  constant kconst
-: reg-latest ( -- )  0  latest 9 +  latest 8 + c@ 127 and  0 1  register ;  \ name from the newest header
-: variable ( -- )         kvar   execute  reg-latest ;
-: constant ( n -- )       kconst execute  reg-latest ;
+: reg-latest ( okind -- )  >r  0  latest 9 +  latest 8 + c@ 127 and  0 1  r>  register ;  \ name from newest header
+: variable ( -- )         kvar   execute  KA reg-latest ;   \ a variable's name pushes its ADDRESS
+: constant ( n -- )       kconst execute  K? reg-latest ;   \ a constant's value kind is unknown

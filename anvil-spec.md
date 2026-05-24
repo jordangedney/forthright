@@ -111,13 +111,22 @@ an unknown word.)
 ## Cell kinds — a conservative type layer
 
 Alongside the height, every abstract cell carries a **kind**: number, address, flag, or
-**unknown**. Kinds enter from three places: an integer literal is a *number*; a comparison
-(`= < > <= >= 0=`) yields a *flag*; and a declaration whose input *names* it (`addr`/`adr`/
-`ptr` → address, `n`/`u` → number, `flag` → flag — any other name stays unknown) seeds the
-input cells. They propagate through the words: shufflers permute the kinds they move; `@`/`c@`
-produce *unknown* (a fetched value could be anything); pointer arithmetic is honoured
-(`address + number → address`, `cell+`/`1+`/`1-` keep address-ness, `address − address →
-number`); other arithmetic yields a *number* only when both operands are numbers.
+**unknown**. Kinds enter from four places: an integer literal is a *number*; a comparison
+(`= < > <= >= 0=`) yields a *flag*; a declaration whose input/output *names* say so (`addr`/
+`adr`/`ptr` → address, `n`/`u` → number, `flag` → flag — any other name stays unknown) seeds
+the input cells and asserts the output; and **a called word advertises its output kind** — a
+`variable` produces an *address*, and a `def`'d word produces whatever its declaration (or, with
+no declaration, its inferred body) leaves on top. So kinds compose across calls: `def mkbuf
+( -- addr ) … ;` lets `mkbuf @` typecheck in a caller. They propagate through the words too:
+shufflers permute the kinds they move; `@`/`c@` produce *unknown* (a fetched value could be
+anything); pointer arithmetic is honoured (`address + number → address`, `cell+`/`1+`/`1-` keep
+address-ness, `address − address → number`); other arithmetic yields a *number* only when both
+operands are numbers.
+
+The output assertion is checked: if a word's declared top output is an address and its body
+leaves a non-address (or vice versa) it's a `ty!` — e.g. `def f ( -- addr ) 5 ;`. Only
+**address** mismatches flag, because in Forth a flag *is* a number (−1/0), so number and flag
+are interchangeable for a declared output.
 
 The crucial design rule: **unknown is absorbing** — any operation with an unknown operand
 produces unknown. So anvil never *asserts* a concrete kind it isn't sure of, and a `ty!` only
@@ -167,6 +176,9 @@ word self-visible inside its own definition.)
 | `def f ( addr -- n ) dup @ swap cell+ @ + ;` | `ok` — fetched values are unknown, so `+` is fine |
 | `check{ 5 0 / }` | `/0!` — division by a literal zero |
 | `variable c  def bump ( -- ) c @ 1+ c ! ;` | `ok` — anvil knows `c` is an address-producer |
+| `def f ( -- addr ) 5 ;` | `ty!` — declares an address output, returns a number |
+| `variable v  def g ( -- ) v 2 * drop ;` | `ty!` — `v`'s address propagates; `* ` rejects it |
+| `def mkbuf ( -- addr ) here ;  def use mkbuf @ ;` | `ok` — the output kind flows to the caller |
 | `check{ dup }` | infers `( x -- yy )` — a phrase that needs 1, leaves 2 |
 
 ## The boundary (why forge exists)
