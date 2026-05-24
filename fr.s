@@ -1629,7 +1629,7 @@ incl_reg_end: .quad incl_registry	# next free byte in the include-once path regi
 	.lcomm wordbuf, wordbuf_size
 	.equ   strbuf_size, 1024	# holding buffer for one s"/." string literal
 	.lcomm strbuf, strbuf_size
-	.equ   dict_size, 65536		# room for definitions created at runtime
+	.equ   dict_size, 262144	# room for definitions created at runtime (anvil's audit tables live here too)
 	.lcomm dict_space, dict_size
 	.equ   incl_max, 16		# max nested `include` depth
 	.equ   incl_frame, 16 + inbuf_size	# per frame: parent fd (8) + remainder len (8) + saved bytes

@@ -195,6 +195,26 @@ word self-visible inside its own definition.)
 | `def abs ( n -- n ) dup 0< if negate exit then ;` | `ok` — both paths are `( n -- n )` |
 | `check{ dup }` | infers `( x -- yy )` — a phrase that needs 1, leaves 2 |
 
+## Auditing a whole file
+
+`def`/`check{` are for one word or phrase. To check an entire user program, `audit` scans the
+rest of the input:
+
+```
+( echo audit ; cat examples/tetris.fr ) | ./fr anvil.fr
+```
+
+It reports every `:` / `def` definition, registers each `variable`/`constant`, **follows
+`include`** (so the file's whole dependency tree is audited), skips comments, and **skips every
+other top-level token** — entry calls, compiled data, `bye`. So the program is never *run*; only
+its definitions are checked. It does the best it can on arbitrary code: anything it can't model
+(an opaque `execute`, an unmodelled primitive) shows up as `? name`, never as a wrong verdict.
+The whole `lib/` and both `examples/` audit clean this way.
+
+(anvil holds its effect table in the kernel's dictionary space, which is sized to fit a full
+audit. Words from modules anvil itself loads — `prelude`, `math` — are registered in its table
+directly, since `include`'s load-once would otherwise skip re-scanning them.)
+
 ## The boundary (why forge exists)
 
 anvil proves **shape** (the stack effect is what's claimed), never **value**: `dup +`

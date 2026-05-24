@@ -86,6 +86,9 @@ check "anvil: dead code after exit" "$(echo 'def f ( n -- n ) dup 0< if negate e
 check "anvil: skips body comments"  "$(echo 'def f ( n -- n ) dup ( double ) * ;'         | ./fr anvil.fr)" "ok"
 # dogfood: the real lib/io.fr (: -> def, includes stripped) must verify with no warnings.
 check "anvil: real lib (io) clean"  "$(sed -E '/^[[:space:]]*include /d; s/^([[:space:]]*):([[:space:]])/\1def\2/' lib/io.fr | ./fr anvil.fr 2>&1 | grep -cE 'BAD|\?|br!|ty!|ex!|dc!|ctl!|/0!')" "0"
+# `audit` scans a whole user file (following includes, skipping top-level code) — tetris + its
+# entire dependency tree must verify with no verdict lines (verdicts print at column 0).
+check "anvil: audits tetris clean"  "$( ( echo audit; cat examples/tetris.fr ) | timeout 30 ./fr anvil.fr 2>&1 | grep -cE '^(BAD|br!|ctl!|r!|ty!|/0!|ex!|dc!|\? )')" "0"
 check "forge: synthesizes dup *"   "$(echo forge | ./fr forge.fr)"                                    "dup *"
 
 # --all (or -a): also run the explorer suite, folding its result into the exit code.

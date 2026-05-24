@@ -43,9 +43,10 @@ variable exiterr                  \ -1 if early `exit` effects disagree with the
 variable nexits  variable exit-in variable exit-out   \ early-return bookkeeping (first exit's effect)
 variable post-exit                \ -1 right after an `exit`, until a then/else/loop-closer
 variable deaderr                  \ -1 if code was found between an `exit` and its closer
+variable inf-loop                 \ -1 if a `0 until` (infinite loop) makes the fall-through unreachable
 variable astk  320 cells allot    \ abstract cell KINDS, indexed by height (see ABASE below)
-here dup tbase ! tp !   8000 allot
-here dup nbase ! np !   8000 allot
+here dup tbase ! tp !   48000 allot   \ effect table — 1000 entries (a whole lib audit fits)
+here dup nbase ! np !   24000 allot   \ names blob (registered + unknown token text)
 here dup csbase ! csp !  400 allot
 here dup unkbase ! unkp ! 400 allot
 
@@ -70,6 +71,7 @@ variable ui                           \ .unknowns iterator
 
 \ control-structure kinds (tag on each control-stack frame)
 1 constant K-IF   2 constant K-ELSE   3 constant K-BEGIN   4 constant K-WHILE   5 constant K-DO
+1000000 constant DEAD   \ sentinel "height" of a path that has `exit`ed — excluded from branch merges
 
 \ --- output: render an effect as ( x.. -- y.. ) ------------------------------
 : emits ( n c -- )  dc !  begin dup 0 > while  dc @ emit  1-  repeat  drop ;
@@ -207,19 +209,27 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
   cs-pop K-IF = 0= if  c-bad exit then
   cs-pop  hgt @ swap hgt !                        \ ( hT ) ; hgt := h0
   cs-push  K-ELSE cs-push ;
-: do-then ( -- )    \ require the two arms to agree
+: do-then ( -- )    \ merge the two arms; a DEAD arm (it `exit`ed) is excluded
   cs-empty? if  c-bad exit then
   cs-pop
-  dup K-ELSE = if  drop  cs-pop hgt @ = 0= if bad-branch then  exit  then  \ else-arm vs true-arm
-  dup K-IF   = if  drop  cs-pop dup hgt @ = 0= if bad-branch then hgt !  exit  then \ empty else: arm neutral
+  dup K-ELSE = if  drop  cs-pop                   ( hT )
+    dup DEAD = if  drop  exit  then                \ true arm exited -> keep the else-arm height
+    hgt @ DEAD = if  hgt !  exit  then             \ else arm exited -> take the true-arm height
+    hgt @ = 0= if bad-branch then  exit  then      \ both real -> must agree
+  dup K-IF = if  drop  cs-pop                       ( h0 )
+    hgt @ DEAD = if  hgt !  exit  then             \ true arm exited -> take the skipped path (h0)
+    dup hgt @ = 0= if bad-branch then  hgt !  exit  then  \ true real -> must be neutral, result h0
   drop  c-bad ;                                   \ `then` with no matching if/else
 
 \ --- loops: the body must be stack-neutral per iteration ---------------------
+: close-loop ( h0 -- )   \ body must return to the loop-entry height (a DEAD body just exited)
+  hgt @ DEAD = if  hgt !  else  hgt @ = 0= if bad-branch then  then ;
 : do-begin  ( -- )  hgt @ cs-push  K-BEGIN cs-push ;
 : do-until  ( -- )  \ begin … until : `until` eats the flag; net must be neutral
   cs-empty? if  c-bad exit then
   cs-pop K-BEGIN = 0= if  c-bad exit then
-  1 0 apply  cs-pop hgt @ = 0= if  bad-branch then ;
+  topk KZ = if  -1 inf-loop !  -1 post-exit !  then  \ `0 until` loops forever: rest is unreachable
+  1 0 apply  cs-pop close-loop ;
 : do-while  ( -- )  \ begin … while : `while` eats the flag; keep the frame open
   cs-empty? if  c-bad exit then
   cs-pop K-BEGIN = 0= if  c-bad exit then
@@ -227,12 +237,12 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
 : do-repeat ( -- )  \ … repeat : body must return to begin's height
   cs-empty? if  c-bad exit then
   cs-pop K-WHILE = 0= if  c-bad exit then
-  cs-pop hgt @ = 0= if  bad-branch then ;
+  cs-pop close-loop ;
 : do-do     ( -- )  2 0 apply  hgt @ cs-push  K-DO cs-push ;  \ `do` eats limit+start
 : do-loop   ( -- )  \ … loop : body must be height-neutral
   cs-empty? if  c-bad exit then
   cs-pop K-DO = 0= if  c-bad exit then
-  cs-pop hgt @ = 0= if  bad-branch then ;
+  cs-pop close-loop ;
 
 \ --- early return: every `exit` must leave the same effect as the final `;` ----------
 : cur-in  ( -- n )  lo @ negate ;
@@ -241,8 +251,8 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
   nexits @ 0= if  cur-in exit-in !  cur-out exit-out !             \ first exit: remember its effect
   else  cur-in exit-in @ = 0=  cur-out exit-out @ = 0=  or  if  -1 exiterr !  then  then
   nexits @ 1+ nexits !  -1 post-exit !          \ anything before the closer is now unreachable
-  cs-empty? 0= if  csp @ 16 - @  hgt !  then ;  \ this path returned: restore the enclosing frame's
-                                                \ height so the pending branch/loop merge stays balanced
+  DEAD hgt ! ;                                  \ mark this path's height DEAD: the branch/loop
+                                                \ closer will exclude it from the merge
 
 \ --- return-stack tracking (>r / r> / r@) ------------------------------------
 : r-push  ( -- )  rdep @ 1+ rdep ! ;
@@ -404,7 +414,7 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
 \ --- the two entry points ----------------------------------------------------
 : reset-sim ( -- )
   0 hgt !  0 lo !  0 unk !  0 imb !  0 cerr !  0 rerr !  0 rdep !  0 terr !  0 zerr !
-  0 exiterr !  0 nexits !  0 post-exit !  0 deaderr !
+  0 exiterr !  0 nexits !  0 post-exit !  0 deaderr !  0 inf-loop !
   csbase @ csp !  unkbase @ unkp !  a-clear ;
 : check{ ( -- )           \ check{ <words> }
   reset-sim
@@ -443,7 +453,10 @@ variable dinkbuf 64 cells allot  variable dki    \ declared input kinds, in orde
   has-decl @ if  pre-register  then                \ recursion: declared self-effect
   begin  semi? 0=  while  classify  read-tok  repeat
   lo @ negate cons-i !  cons-i @ hgt @ + prod-i !  topk iok !   \ inferred top-output kind
-  nexits @ if  cons-i @ exit-in @ = 0=  prod-i @ exit-out @ = 0=  or  if -1 exiterr ! then  then
+  inf-loop @ nexits @ 0= 0= and  if            \ infinite loop + early exit: the EXIT is the real effect
+    exit-in @ cons-i !  exit-out @ prod-i !  0 exiterr !  K? iok !  ( fall-through is unreachable )
+  else  nexits @ if  cons-i @ exit-in @ = 0=  prod-i @ exit-out @ = 0=  or  if -1 exiterr ! then  then
+  then
   has-decl @ if  finish-register                   \ keeps the declared out-kind for callers
   else  0 name-a @ name-n @ cons-i @ prod-i @ iok @ register  then  \ no decl: advertise inferred
   report-def ;
@@ -468,6 +481,9 @@ variable dinkbuf 64 cells allot  variable dki    \ declared input kinds, in orde
 1 0 prim ,        1 1 prim cells    1 1 prim cell+
 2 0 prim type     3 0 prim cmove    3 0 prim fill     1 2 prim count    1 0 prim spaces
 2 2 prim /mod     2 1 prim find     0 1 prim latest   0 1 prim sp@      0 1 prim sp0
+\ higher-level prelude/math words (anvil loads those modules as real words but only the prims
+\ above land in its table; register the rest so audited code that uses them resolves):
+1 0 prim u.       1 0 prim .n       2 0 prim +!       3 1 prim within   3 1 prim clamp
 \ return-stack words (classify special-cases these too, for r-balance)
 1 0 prim >r       0 1 prim r>       0 1 prim r@
 \ counted-loop helpers
@@ -490,3 +506,19 @@ variable dinkbuf 64 cells allot  variable dki    \ declared input kinds, in orde
 : reg-latest ( okind -- )  >r  0  latest 9 +  latest 8 + c@ 127 and  0 1  r>  register ;  \ name from newest header
 : variable ( -- )         kvar   execute  KA reg-latest ;   \ a variable's name pushes its ADDRESS
 : constant ( n -- )       kconst execute  K? reg-latest ;   \ a constant's value kind is unknown
+
+\ --- audit a whole user file -------------------------------------------------------
+\   ( echo audit ; cat FILE ) | ./fr anvil.fr
+\ Scans the rest of the input and reports every  :  /  def  definition, registers each
+\ variable/constant, FOLLOWS include (so a file's deps are audited too), skips comments,
+\ and SKIPS every other top-level token (entry calls, data, bye) — so the program is never
+\ run. The best anvil can do on arbitrary user code: audit the definitions, ignore the rest.
+: audit1 ( -- )                               \ dispatch one top-level token (already in tok)
+  s" :"        tok= if  def                exit then   \ a colon definition
+  s" def"      tok= if  def                exit then
+  s" variable" tok= if  variable           exit then   \ register (and build) the variable
+  s" constant" tok= if  0 constant         exit then   \ dummy value (we only need its name)
+  s" include"  tok= if  include            exit then   \ follow the include; audit reads the file next
+  s" \"        tok= if  kbackslash execute exit then   \ skip a line comment
+  s" ("        tok= if  kparen     execute exit then ; \ skip an inline comment  (else: skip the token)
+: audit ( -- )  begin  read-tok  tok-n @  while  audit1  repeat ;

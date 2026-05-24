@@ -102,9 +102,11 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (the whole repo is Python-fr
   **shadows `variable`/`constant`** (building the real word *and* registering its name), so it
   checks *stateful* code instead of flagging the variable unknown. It also handles the
   **parsing words** (`s" … "` → `( addr len )`, `." … "` → `( )`, `[char]`/`char` → a number,
-  `'`/`[']` → an address) that consume a following token. Sound for the structured code fr
-  produces; proves **shape (+ a little kind), not value**. The reason the project exists;
-  `anvil-spec.md` is its spec.
+  `'`/`[']` → an address) that consume a following token. **`audit`** scans a whole user file —
+  `( echo audit; cat FILE ) | ./fr anvil.fr` — checking every `:`/`def`, following `include`,
+  skipping all top-level program code (so it never *runs* the file); the whole `lib/` and both
+  `examples/` audit clean. Sound for the structured code fr produces; proves **shape (+ a little
+  kind), not value**. The reason the project exists; `anvil-spec.md` is its spec.
 - **`forge.fr`** — the generate → check → repair loop, **self-hosted in fr**: a generator
   builds candidate threaded bodies, the self-hosted `anvil` (`check-body`) verifies each
   one's stack effect, shape-valid candidates are `execute`d on examples, and the first
