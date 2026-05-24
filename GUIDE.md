@@ -156,6 +156,15 @@ slots. `variable`/`constant` use codewords `dovar`/`doconst` (siblings of `docol
 pass everything in registers and never touch the data stack, and they save/restore
 `%rsi` around any syscall that uses it (`read`/`write` clobber it).
 
+**Map of `fr.s`** (top to bottom): the `NEXT` macro and `_start`; `docol` /
+`dovar` / `doconst` (runtime behaviours); headerless internal words (`EXIT` `LIT`
+`BRANCH` `ZBRANCH`); the **dictionary** — chained header+code entries, the bulk of
+the file; the outer-interpreter helpers (`_create` `_refill` `_word` `_find`
+`_number` `code_INTERPRET`); the `cold_start → QUIT` threaded loop; then
+`.rodata` / `.data` (`var_latest` heads the dictionary chain; `systab`) and `.bss`
+(stacks, `inbuf`, `dict_space`). To add a word you insert a dictionary entry and
+re-thread one link; see §5.
+
 ---
 
 ## 5. Extending fr
@@ -208,6 +217,11 @@ The generator stands in for an AI; the point is that nothing is accepted unless
 ---
 
 ## 7. Verifying changes (always run after editing)
+
+**One command: `./test.sh`** — builds and runs every check below, printing
+PASS/FAIL (exit non-zero on any failure). Run it first; the individual commands
+below are for when you need to look closely at one. (`DECISIONS.md` records *why*
+the design is the way it is — read it before changing something that looks odd.)
 
 ```sh
 ./build.sh                                   # must assemble + link cleanly

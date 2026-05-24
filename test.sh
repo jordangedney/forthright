@@ -1,0 +1,35 @@
+#!/bin/sh
+# test.sh — build forthright and run every check. Prints PASS/FAIL; exits non-zero
+# if anything failed. This is the one-command answer to "is it still working?".
+# (Documentation that can't rot: it runs the real kernel, prelude, anvil, forge,
+# ember — both backends — and the Python reference specs.)
+cd "$(dirname "$0")" || exit 2
+fail=0
+pass() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
+bad()  { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; fail=1; }
+# check NAME ACTUAL WANTED-SUBSTRING   (runs in the main shell so fail sticks)
+check() {
+  if printf '%s' "$2" | grep -qF "$3"; then pass "$1"; else
+    bad "$1 (wanted '$3', got: $(printf '%s' "$2" | tr '\n' ' ' | cut -c1-60))"
+  fi
+}
+
+printf 'building... '
+if ./build.sh >/dev/null 2>&1; then printf 'ok\n\n'; else echo "BUILD FAILED"; exit 1; fi
+
+check "kernel: 2 3 + ."          "$(echo '2 3 + .' | ./fr)"                                       "5"
+check "prelude: 5 square ."      "$( ( cat prelude.fr; echo '5 square .' ) | ./fr )"               "25"
+check "control flow: -7 abs"     "$( ( cat prelude.fr; echo ': abs dup 0 < if negate then ; -7 abs .' ) | ./fr )" "7"
+check "see: disassemble square"  "$( ( cat prelude.fr; echo 'see square' ) | ./fr )"               "dup * ;"
+check "anvil: def ... ok"        "$( ( cat prelude.fr anvil.fr; echo 'def sq ( n -- n ) dup * ;' ) | ./fr )" "ok"
+check "anvil: catches BAD"       "$( ( cat prelude.fr anvil.fr; echo 'def bad ( a b -- c ) + + ;' ) | ./fr )" "BAD"
+check "anvil: branch imbalance"  "$( ( cat prelude.fr anvil.fr; echo 'def x ( n -- n ) 0 < if dup then ;' ) | ./fr )" "br!"
+check "forge: synthesizes dup *" "$( ( cat prelude.fr anvil.fr forge.fr; echo forge ) | ./fr )"    "dup * <"
+check "ember: python model"      "$(./ember --selftest)"                                            "ALL PASS"
+check "ember: native (ptrace)"   "$(timeout 60 ./ember --native-selftest)"                          "NATIVE PASS"
+check "anvil-reference.py spec"   "$(python3 anvil-reference.py --selftest)"                         "ALL PASS"
+check "forge-reference.py"        "$(python3 forge-reference.py)"                                    "FORGED"
+
+echo
+if [ "$fail" -eq 0 ]; then printf '\033[32mALL CHECKS PASSED\033[0m\n'; else printf '\033[31mSOME CHECKS FAILED\033[0m\n'; fi
+exit "$fail"

@@ -3,8 +3,9 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 > **New here / no prior context?** Read `GUIDE.md` first — it teaches the fr language and
-> the whole project from scratch (word reference, how to read/write/extend fr, how to
-> verify changes, a worked example). This file is the terse cheatsheet.
+> the whole project from scratch. `DECISIONS.md` records *why* the design is the way it is
+> (read before "fixing" something odd); `ROADMAP.md` is what's next. Run `./test.sh` to
+> verify everything builds and passes. This file is the terse cheatsheet.
 
 ## What this is
 
