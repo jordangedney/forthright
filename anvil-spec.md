@@ -76,9 +76,12 @@ error).
 Primitive effects `name -> (consumes, produces)` mirror the kernel + prelude. The table
 covers the shufflers (`dup 2dup over nip drop 2drop swap rot`), arithmetic/logic
 (`+ - * / mod negate 1+ 1- abs 2* 2/ min max and or xor lshift rshift`), comparisons
-(`= < > <= >= 0=`, each leaving one flag), memory (`@ ! c@ c! , cells cell+`), the
-return-stack words (`>r r> r@`), counted-loop helpers (`i j unloop`), and i/o
-(`emit key . u. depth space cr bye`). Words anvil knows about but that aren't loaded are
+(`= < > <= >= 0= 0< 0>`, each leaving one flag), memory + strings (`@ ! c@ c! , cells cell+
+type cmove fill count spaces`), the return-stack words (`>r r> r@`), counted-loop helpers
+(`i j unloop`), and i/o (`emit key . u. depth space cr bye here allot`). The **parsing words**
+that consume a *following token* rather than a stack item are handled specially: `[char] X` /
+`char X` → a number, `' word` / `['] word` → an address (a CFA), `s" … "` → `( addr len )`, and
+`." … "` → `( )` (the string body is skipped, so its words aren't mistaken for code). Words anvil knows about but that aren't loaded are
 recorded by name (their CFA is 0) — fine, since `def`/`check{` look words up by name; only
 the compiled-CFA path (`check-body`, used by forge) needs a real CFA. `def` registers each
 checked word's effect so later words compose on top of it.

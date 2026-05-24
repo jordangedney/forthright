@@ -179,6 +179,11 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
 : repeat? ( -- f )  s" repeat" tok= ;
 : do?     ( -- f )  s" do"     tok= ;
 : loop?   ( -- f )  s" loop"   tok= ;
+\ string parsing words (can't write a `"` inside s", so match the 2 chars directly):
+: sq?    ( -- f )  tok-n @ 2 =  tok-a @ c@ [char] s =  and  tok-a @ 1+ c@ [char] " =  and ;
+: dotq?  ( -- f )  tok-n @ 2 =  tok-a @ c@ [char] . =  and  tok-a @ 1+ c@ [char] " =  and ;
+: ends-quote? ( -- f )  tok-n @ 0= if  0  else  tok-a @ tok-n @ + 1- c@ [char] " =  then ;
+: skip-string ( -- )  begin  read-tok  ends-quote?  tok-n @ 0= or  until ;  \ consume to the closing "
 
 \ --- unknown-word recording (by name, so reports can show them) --------------
 : unk, ( x -- )  unkp @ !  unkp @ 8 + unkp ! ;
@@ -284,6 +289,12 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
   do?     if  do-do      exit  then
   loop?   if  do-loop    exit  then
   s" exit" tok= if  do-exit  exit  then           \ early return
+  sq?   if  skip-string  0 2 apply  KA hgt @ 2 - k!h  KN kset  exit then  \ s" … " -> ( addr len )
+  dotq? if  skip-string  exit then                                        \ ." … " -> ( )
+  s" [char]" tok= if  read-tok  0 1 apply knum  exit then  \ these consume the FOLLOWING token,
+  s" char"   tok= if  read-tok  0 1 apply knum  exit then  \ not a stack item: [char] X / char X
+  s" '"      tok= if  read-tok  0 1 apply KA kset  exit then  \ ' word  -> ( cfa = address )
+  s" [']"    tok= if  read-tok  0 1 apply KA kset  exit then
   s" >r" tok= if  1 0 apply  r-push   exit  then  \ return-stack words
   s" r>" tok= if  0 1 apply  r-pop    exit  then
   s" r@" tok= if  0 1 apply  r-fetch  exit  then
@@ -436,9 +447,10 @@ variable dinkbuf 64 cells allot  variable dki    \ declared input kinds, in orde
 \ comparisons (all leave one flag)
 2 1 prim =        2 1 prim <        2 1 prim >        2 1 prim <=
 2 1 prim >=       1 1 prim 0=       1 1 prim 0<       1 1 prim 0>
-\ memory
+\ memory + strings
 1 1 prim @        2 0 prim !        1 1 prim c@       2 0 prim c!
 1 0 prim ,        1 1 prim cells    1 1 prim cell+
+2 0 prim type     3 0 prim cmove    3 0 prim fill     1 2 prim count    1 0 prim spaces
 \ return-stack words (classify special-cases these too, for r-balance)
 1 0 prim >r       0 1 prim r>       0 1 prim r@
 \ counted-loop helpers
