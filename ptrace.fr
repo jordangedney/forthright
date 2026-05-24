@@ -1,13 +1,18 @@
 \ ptrace.fr — process control and ptrace, in fr, built on the kernel's syscall6.
-\ This is the groundwork for self-hosting ember's debugger backend (driving the real
-\ fr engine under ptrace) — the one piece that had to live in Python. ptrace turns
-\ out not to be special at all: it's syscall 101, so syscall6 reaches it directly.
+\ This is the debugger backend that "had to live in Python" — self-hosted. ptrace
+\ turns out not to be special at all: it's syscall 101, so syscall6 reaches it.
 \
-\     ( cat prelude.fr ptrace.fr; echo trace-demo ) | ./fr
+\     ( cat prelude.fr ptrace.fr; echo trace-demo )        | ./fr   \ single-step proof
+\     ( cat prelude.fr ptrace.fr; echo "5 ' square watch" ) | ./fr  \ trace the real engine
 \
 \ trace-demo forks a child that asks to be traced (PTRACE_TRACEME) and stops itself;
-\ the parent then single-steps it and reads its instruction pointer before and after,
-\ proving the step actually advanced the child's RIP. Depends on prelude.fr.
+\ the parent single-steps it and reads RIP before/after, proving the step advanced it.
+\
+\ watch is the payoff — a self-hosted NativeVM: it forks (so the child shares fr's exact
+\ memory image, making the parent's dictionary identical to the child's), runs a word in
+\ the child, and single-steps it from the parent, decoding %rax at each `jmp *(%rax)`
+\ dispatch boundary into the word being run. `5 ' square watch` prints the real engine's
+\ trace — `… execute square dup * ; bye` — observed entirely from fr. Depends on prelude.fr.
 
 \ --- syscall numbers (x86-64) and ptrace request codes -----------------------
 57  constant SYS_fork
@@ -36,6 +41,17 @@ variable pkbuf
 : peekreg  ( pid off -- v ) PTRACE_PEEKUSER rot rot  pkbuf 0 0  SYS_ptrace syscall6 drop  pkbuf @ ;
 : peekrip  ( pid -- rip )   uRIP peekreg ;
 
+\ --- reading the whole register file and the child's memory ------------------
+12 constant PTRACE_GETREGS
+1  constant PTRACE_PEEKTEXT
+variable regbuf  256 allot      \ x86-64 user_regs_struct is 27 cells (216 bytes)
+: getregs  ( pid -- )       PTRACE_GETREGS swap 0 regbuf 0 0 SYS_ptrace syscall6 drop ;
+: reg@     ( off -- v )     regbuf + @ ;          \ field by byte-offset (after getregs)
+: r-rax ( -- v )  80 reg@ ;   : r-rsi ( -- v ) 104 reg@ ;
+: r-rip ( -- v ) 128 reg@ ;   : r-rsp ( -- v ) 152 reg@ ;
+: peekdata ( pid addr -- w ) PTRACE_PEEKTEXT rot rot  pkbuf 0 0  SYS_ptrace syscall6 drop  pkbuf @ ;
+: stopped? ( status -- f )  127 and  127 = ;       \ WIFSTOPPED: low 7 bits == 0x7f
+
 \ --- the demo: trace a child and single-step it ------------------------------
 variable cpid  variable r0  variable r1
 : .moved ( -- ) [char] M emit [char] O emit [char] V emit [char] E emit [char] D emit ;
@@ -53,4 +69,38 @@ variable cpid  variable r0  variable r1
     cpid @ pcont   pwait drop            \   let the child run to exit
     r0 @ .  r1 @ .                        \   show both instruction pointers
     r0 @ r1 @ = 0= if  .moved cr  then    \   verdict: the step advanced RIP
+  then ;
+
+\ --- watch: a self-hosted NativeVM in miniature ------------------------------
+\ This is what "stayed in Python": driving the REAL fr engine under ptrace and
+\ decoding the live thread. We fork (not exec), so the child shares fr's exact
+\ memory image — the parent's dictionary IS the child's, so the parent can name
+\ the child's CFAs with `.cfaname`. The child runs a word; the parent single-steps
+\ it and, at each `jmp *(%rax)` dispatch boundary (the ITC NEXT/EXECUTE, opcode
+\ FF 20), reads %rax — the CFA about to run — and decodes it. The result is a trace
+\ of the real engine executing, observed entirely from fr, from outside the process.
+variable child  variable wn
+: dispatch? ( -- f )            \ is the child's RIP at a `jmp *(%rax)` ?  (0x20FF LE)
+  child @  r-rip  peekdata  65535 and  8447 = ;
+: .dispatched ( cfa -- )        \ name the CFA the engine is about to run
+  dup 'exit = if  drop [char] ; emit       exit then
+  dup 'lit  = if  drop [char] # emit       exit then
+  dup 'branch  = if drop [char] b emit     exit then
+  dup '0branch = if drop [char] 0 emit [char] b emit  exit then
+  .cfaname ;
+: watch ( n cfa -- )            \ usage:  <args> ' <word> watch
+  fork dup 0= if                                 \ child: run the word, traced
+    drop  traceme  getpid SIGSTOP kill  execute  bye
+  else                                           \ parent: drive & decode it
+    child !  2drop
+    pwait drop                                   \ initial SIGSTOP
+    0 wn !
+    begin
+      child @ ssstep  pwait  stopped?  wn @ 9000 <  and
+    while
+      child @ getregs
+      dispatch? if  r-rax .dispatched space  then
+      wn @ 1+ wn !
+    repeat
+    cr
   then ;

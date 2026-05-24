@@ -86,12 +86,13 @@ assembly is a throwaway bootstrap.
   — DONE** (fr forks a child, `PTRACE_TRACEME`s it, single-steps it, reads RIP). The kernel
   also **loads source from argv** + reassembles tokens/comments across refills. ember.fr is at
   parity with the Python ember's *core*; what's left to close the gap:
-  - **Self-host the ptrace backend (the big one, now in reach).** `ptrace.fr` proves the
-    primitives. A fr-native `NativeVM` would: fork+exec `./fr`, `PTRACE_SINGLESTEP` to each
-    `jmp *(%rax)` boundary, `PTRACE_GETREGS`/`PEEKDATA` (or read `/proc/pid/mem`) to pull
-    `%rsi`/stacks/the live thread, and decode it with `see`'s machinery. Then ember.fr drives
-    the *real* engine, and the Python `ember` is fully redundant. Wants: an ELF `.symtab`
-    reader in fr (or a fixed symbol table emitted at build), and `GETREGS` struct decoding.
+  - **Self-host the ptrace backend — core DONE.** `ptrace.fr`'s `watch` already forks the
+    running fr, single-steps the child to each `jmp *(%rax)` boundary, and decodes `%rax`
+    via the shared dictionary (`5 ' square watch` → `… execute square dup * ; bye`). The
+    fork trick sidesteps ELF/argv entirely. What remains to make it *ember's* backend:
+    plug `watch`'s per-step state (`r-rsi` for the IP, `r-rsp` + `peekdata` for the data
+    stack) into ember.fr's `call`/`code`/`data` panels, so the visual stepper drives the
+    real engine instead of simulating it — at which point the Python `ember` is redundant.
   - **Buffer redraws.** `term.fr` emits one `write(2)` per byte; a frame is many tiny
     syscalls (flicker). Render into a string buffer and `type` it once. Wants `s"`-style
     string building (or just a scratch buffer + `c!` cursor) — a good prelude addition.

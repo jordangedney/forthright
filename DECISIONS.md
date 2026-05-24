@@ -116,12 +116,15 @@ colon words** (descends through `docol`/`EXIT` on its own `rstk`/`cstk` call sta
 `code` panel follows the callee and `call` shows the path; primitives stay atomic). It is
 still a *subset*: it walks threaded cells, not raw machine instructions, and lacks the
 richer curses chrome. **On the ptrace backend** (the one piece this doc long called
-"out of fr's reach"): that was only true while the syscall primitive capped at 3 args.
-With `syscall6`, `ptrace`/`fork`/`wait4` are ordinary calls — `ptrace.fr` already forks a
-child, `PTRACE_TRACEME`s it, and single-steps it, reading RIP across the step. So a
-self-hosted `NativeVM` (single-step the real fr, peek `/proc/pid/mem` or `PTRACE_PEEKDATA`,
-decode the live thread) is now reachable in fr; the Python `ember` stays as the *richer*,
-already-built explorer, not because fr *can't* do it.
+"out of fr's reach"): that claim died with `syscall3`. `ptrace`/`fork`/`wait4` are just
+syscalls, so `ptrace.fr`'s `watch` is a working **self-hosted NativeVM** — it forks the
+running fr (the child shares its memory image, so the parent's dictionary *is* the
+child's), runs a word in the child, single-steps it from the parent, and decodes `%rax`
+at each `jmp *(%rax)` dispatch into the word being run. `5 ' square watch` prints the real
+engine's trace, observed from fr. So fr can drive itself under ptrace; the Python `ember`
+stays only as the *richer, already-built* explorer (full curses chrome), not from
+necessity. **A subtlety that made `watch` simple:** forking instead of `execve`ing means
+no ELF/argv work and a shared dictionary — the parent decodes the child's CFAs for free.
 
 ### ember.fr runs with no launcher; `ember-fr` is just a pty wrapper, and `q` exits fr
 `raw-on` does an `ioctl` on fd 0, which fails on a pipe — so `ember.fr` needs a real

@@ -47,6 +47,9 @@ check "ember.fr: nested run (cube 3)" "$( ( $LT; echo "$CUBE 3 ' cube einit erun
 # ptrace from fr: fork a child, PTRACE_TRACEME + SINGLESTEP it, confirm RIP advanced.
 # This is the groundwork for self-hosting ember's debugger backend (no Python).
 check "ptrace.fr: fr single-steps a child" "$( ( cat prelude.fr ptrace.fr; echo trace-demo ) | ./fr )" "MOVED"
+# watch: fr drives the REAL fr engine under ptrace and decodes the live dispatch —
+# the self-hosted NativeVM. Tracing `5 square` must show square's body executing.
+check "ptrace.fr: watch traces real engine" "$( ( cat prelude.fr ptrace.fr; echo "5 ' square watch" ) | ./fr )" "square dup *"
 
 # --- end-to-end backends (slower: a pty and a ptraced process) -----------------
 check "ember.fr: pty stepper 5->25"  "$(timeout 30 ./ember-fr --selftest)"        "EMBER-FR PASS"

@@ -240,8 +240,12 @@ new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checki
       in fr, run with no Python (`./fr prelude.fr term.fr ember.fr`). It **steps into
       colon words** (`call`/`code`/`data` view) and **follows control flow** (if/else +
       loops). fr now writes, verifies, forges, *and watches* its own code.
-- [x] **ptrace.fr** — process control + **ptrace** *in fr*: fork a child, `PTRACE_TRACEME`
-      + `PTRACE_SINGLESTEP` it, read its RIP across the step. ptrace was never special —
-      just a 4-arg syscall `syscall3` couldn't reach. So even the debugger backend that
-      "stayed in Python" is now within fr's grasp; the Python `ember` remains the richer,
-      already-built explorer, not a thing fr is incapable of.
+- [x] **ptrace.fr** — process control + **ptrace** *in fr*: `fork`, `PTRACE_TRACEME`,
+      `SINGLESTEP`, `GETREGS`, `PEEKDATA` — all just `syscall6` shuffles. ptrace was never
+      special, just a 4-arg syscall `syscall3` couldn't reach. Its `watch` is a **self-hosted
+      NativeVM**: fork the running fr (child shares its memory image, so the parent's
+      dictionary *is* the child's), run a word in the child, single-step it from the parent,
+      and decode `%rax` at each `jmp *(%rax)` dispatch. `5 ' square watch` →
+      `… execute square dup * ; bye` — the real engine traced, observed entirely from fr.
+      So the debugger backend that "stayed in Python" now runs in fr too; the Python `ember`
+      remains the richer, already-built explorer, not a thing fr is incapable of.
