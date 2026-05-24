@@ -17,5 +17,5 @@
 # For totally hands-on use you can run that line yourself and just type the command.
 cd "$(dirname "$0")" || exit 1
 cmd="$*"
-[ -z "$cmd" ] && cmd="5 ' square ember"
+[ -z "$cmd" ] && cmd="ember"
 exec ./fr prelude.fr term.fr ptrace.fr ember.fr <(printf '%s\n' "$cmd")

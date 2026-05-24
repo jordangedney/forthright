@@ -32,8 +32,9 @@ check "ember.fr: follows if/then (abs -5)"      "$( ( $LT; echo ": abs dup 0< if
 check "ember.fr: steps into colon (cube 3)"     "$( ( $LT; echo ": cube dup square * ;  3 ' cube ember-trace" ) | ./fr )"  "27"
 
 # --- end-to-end TUIs (slower: a pty and a ptraced process) ---------------------
-check "ember.fr: pty stepper 5->25"     "$(timeout 30 ./ember-pty --selftest)"       "EMBER PASS"
-check "ember.fr: live edit re-targets"  "$(timeout 30 ./ember-pty --edit-selftest)"  "EMBER EDIT PASS"
+check "ember.fr: pty stepper 5->25"     "$(timeout 30 ./ember-pty --selftest)"        "EMBER PASS"
+check "ember.fr: bare boots to prompt"  "$(timeout 30 ./ember-pty --prompt-selftest)" "EMBER PROMPT PASS"
+check "ember.fr: live edit re-targets"  "$(timeout 30 ./ember-pty --edit-selftest)"   "EMBER EDIT PASS"
 check "ember (python): model"           "$(./ember --selftest)"                      "ALL PASS"
 check "ember (python): native ptrace"   "$(timeout 60 ./ember --native-selftest)"    "NATIVE PASS"
 
