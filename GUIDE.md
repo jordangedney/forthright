@@ -287,8 +287,9 @@ done for `/` and `mod`).
 Built and working, all self-hosted where it counts: the kernel, the prelude (with a
 self-hosted disassembler `see` and tracer `trace`), the verifier `anvil`, the
 synthesis loop `forge`, the terminal layer `term.fr`, and `ember.fr` — an interactive
-visual stepper written in fr that *follows control flow* (if/else and loops step). Run
-it with no Python: `./fr prelude.fr term.fr ember.fr`, then type `5 ' square ember`. fr
+visual stepper written in fr that *steps into colon words* (a `call`/`code`/`data` view,
+like the Python ember) and *follows control flow* (if/else and loops). Run it with no
+Python: `./fr prelude.fr term.fr ember.fr`, then type `3 ' cube ember`. fr
 writes, verifies, forges, and now *watches* its own code. The Python `ember` keeps only
 what fr can't reach: the `ptrace` backend that single-steps the real machine
 instructions and its full multi-panel debugger view.

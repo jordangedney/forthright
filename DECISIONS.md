@@ -108,14 +108,15 @@ exactly once → `ICANON` and `ECHO` are both off), since `ioctl` needs a real t
 
 ### a self-hosted ember exists (`ember.fr`); the ptrace backend stays in Python
 `ember.fr` is now a real interactive stepper *in fr* — `see`/`trace` for the model,
-`key`/`raw-on` for input, `term.fr` for output. It steps a word's threaded body on the
-live data stack and **follows control flow** (`estep` reads a `0branch`'s flag off the
-stack and moves the cursor, mirroring the inner interpreter — it can't `execute` a
-branch without clobbering its own IP), so `if/else` and loops step. It is still a
-*subset* of the Python `ember`: it steps threaded cells, not raw machine instructions.
-**What stays external:** the `NativeVM` ptrace backend (single-step the real fr, read
-`/proc/pid/mem`) — fr has no `ptrace`/`fork`/`waitpid` primitives, and that's a *host*
-debugging tool by nature, not part of the language's trust base.
+`key`/`raw-on` for input, `term.fr` for output. It has parity with the Python ember's
+*core*: `estep` **follows control flow** (reads a `0branch`'s flag off the stack, moves
+the cursor — it can't `execute` a branch without clobbering its own IP) and **steps into
+colon words** (descends through `docol`/`EXIT` on its own `rstk`/`cstk` call stack, so the
+`code` panel follows the callee and `call` shows the path; primitives stay atomic). It is
+still a *subset*: it walks threaded cells, not raw machine instructions, and lacks the
+richer curses chrome. **What stays external:** the `NativeVM` ptrace backend (single-step
+the real fr, read `/proc/pid/mem`) — fr has no `ptrace`/`fork`/`waitpid` primitives, and
+that's a *host* debugging tool by nature, not part of the language's trust base.
 
 ### ember.fr runs with no launcher; `ember-fr` is just a pty wrapper, and `q` exits fr
 `raw-on` does an `ioctl` on fd 0, which fails on a pipe — so `ember.fr` needs a real

@@ -41,13 +41,16 @@ holds two pieces:
 - **`ember.fr`** — the **self-hosted ember**: an interactive visual single-stepper written
   in fr (the fr-native analog of the Python `ember`). `<args> ' <word> ember` steps the
   word's threaded body cell by cell on the live data stack, drawing a `code`/`data` panel
-  with the current cell highlighted (built on `term.fr` + `see`/`trace`). `space`/`s` step,
-  `q`/`Esc` quit. It **follows control flow** — `0branch` pops the live flag, `branch` moves
-  the cursor — so `if/else` and `begin/until` loops step too. Run it with **no Python**:
-  `./fr prelude.fr term.fr ember.fr`, then type `5 ' square ember` (the kernel loads the
-  files from `argv`, then the tty is the REPL so `raw-on` works). `./ember-fr` is a pty
-  wrapper that pre-types the command + enables scripted testing. The Python `ember` keeps
-  what fr can't do: the `ptrace` backend and the full multi-panel debugger.
+  with the current cell highlighted (built on `term.fr` + `see`/`trace`). Panels: `call`
+  (the call path), `code` (current word's body), `data` (live stack). `space`/`s` step,
+  `r` runs to the end, `q`/`Esc` quit. It **follows control flow** (`0branch` pops the live
+  flag, `branch` moves the cursor) AND **steps into colon words** — `estep` descends through
+  `docol`/`EXIT` tracking its own call stack (`rstk`/`cstk`), so the `code` panel switches to
+  the callee and `call` shows `cube > square` (primitives stay atomic). Run it with **no
+  Python**: `./fr prelude.fr term.fr ember.fr`, then type `5 ' square ember` (the kernel loads
+  the files from `argv`, then the tty is the REPL so `raw-on` works). `./ember-fr` is a pty
+  wrapper for scripted testing + pre-typing the command. The Python `ember` keeps what fr
+  can't do: the `ptrace` backend over real machine instructions and its richer curses view.
 - **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted), built on the
   prelude. `check{ … }`
   infers a phrase's `( in -- out )` by abstract stack simulation; `def name ( decl ) body ;`

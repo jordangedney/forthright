@@ -125,20 +125,24 @@ current cell highlighted and a live `data` panel. It's built entirely on fr — 
 library from its file arguments, then the terminal is the REPL (so `raw-on` has a real
 tty). Type a stepping command at the prompt:
 
-    ./fr prelude.fr term.fr ember.fr      # then type:  5 ' square ember
+    ./fr prelude.fr term.fr ember.fr      # then type:  3 ' cube ember
 
 ```
- ember: square  #2          space/s = step one cell
- code   dup * ;             q / Esc = quit
- data   25                  (follows if/else + loops)
+ ember: cube  #2            space=step  r=run  q=quit
+ call   cube > square       (stepped INTO square)
+ code   dup * ;             (square's body, current cell highlit)
+ data   3 3
 ```
 
-It **follows control flow** — `0branch` pops the live flag and `branch` moves the
-cursor, so `if/else` and `begin/until` loops step too (watching a comparison's flag
-steer a `0branch` is the fun part). The `ember-fr` script is a convenience/test wrapper
-(it adds a pty so keystrokes can be scripted: `./ember-fr --selftest`). The Python
-`ember` keeps what fr can't reach — the `ptrace` backend over real machine
-instructions, and the full multi-panel debugger.
+It **steps into colon words** — descending through `docol`/`EXIT` while tracking its
+own call stack — so the `code` panel switches to the callee and `call` shows the path
+`cube > square`, exactly like the Python ember hopping into a definition (primitives
+stay atomic). It also **follows control flow**: `0branch` pops the live flag and
+`branch` moves the cursor, so `if/else` and `begin/until` loops step too. `r` runs to
+the end. The `ember-fr` script is a convenience/test wrapper (it adds a pty so
+keystrokes can be scripted: `./ember-fr --selftest`). The Python `ember` keeps what fr
+can't reach — the `ptrace` backend over real machine instructions, and its richer
+curses view (RETURN frames, dictionary, Nord palette).
 
 ## Verifying it: anvil.fr (self-hosted)
 

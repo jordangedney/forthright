@@ -82,17 +82,18 @@ assembly is a throwaway bootstrap.
   could regenerate. Hard, beautiful, and the natural terminus of "everything in fr."
 - A generic **`syscall` primitive** — **DONE** (`syscall3` + `key`), and on top of it
   `term.fr` (ANSI + termios cbreak via `ioctl`) and **`ember.fr` — DONE:** an interactive
-  visual stepper written in fr that **follows control flow** (if/else + loops), run with
-  no Python: `./fr prelude.fr term.fr ember.fr`. The kernel now **loads source from argv**
-  and reassembles tokens/comments across refills, so the launch needs no library-feeding.
-  What's left to grow ember:
+  visual stepper written in fr, run with no Python: `./fr prelude.fr term.fr ember.fr`. It
+  already has parity with the Python ember's *core*: it **steps into colon words** (call-tree
+  walk, `call`/`code`/`data` panels), **follows control flow** (if/else + loops), and has
+  **run-to-end** (`r`). The kernel **loads source from argv** + reassembles tokens/comments
+  across refills, so the launch needs no library-feeding. What's left to close the gap fully:
   - **Buffer redraws.** `term.fr` emits one `write(2)` per byte; a frame is many tiny
     syscalls (flicker). Render into a string buffer and `type` it once. Wants `s"`-style
     string building (or just a scratch buffer + `c!` cursor) — a good prelude addition.
-  - **More panels.** Return stack (needs an `rp@`/`rp0` pair like `sp@`/`sp0`), dictionary
-    list (walk `latest`), an editable input line (`key` + an edit buffer).
-  - **Run-to-end / autoplay.** A key that `estep`s until `edone` (with a small delay),
-    and breakpoints on a chosen cell.
+  - **More panels.** A dictionary list (walk `latest`); an editable input line so you can
+    type/define words live (`key` + an edit buffer) instead of passing the word up front.
+  - **Polish toward the Python look.** Nord colours, a blinking IP marker, autoplay with a
+    speed control (`r` runs flat-out now), breakpoints on a chosen cell.
 
 ## Cross-cutting: the corpus
 

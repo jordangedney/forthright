@@ -17,51 +17,85 @@
 \ model (see/trace), the input (key/raw-on), the output (term.fr). This file is just
 \ the loop that ties them together.
 \
-\   keys :  space / s = step one cell      q / Esc = quit
-\   scope:  follows control flow — if/else/then and begin/until/while/repeat all
-\           step (0branch pops the live flag; branch moves the cursor). Watching a
-\           comparison's flag steer a 0branch is the whole point. (The thread panel
-\           still decodes linearly like `see`, so on a backward jump the cursor
-\           hops back up; cells the cursor has passed are shown faint.)
+\   keys  : space / s = step one cell   ·   r = run to the end   ·   q / Esc = quit
+\   panels: call (the call path, e.g. cube > square) · code (the current word's body,
+\           current cell highlighted) · data (the live stack).
+\   scope : follows control flow — if/else/then and begin/until/while/repeat step
+\           (0branch pops the live flag; branch moves the cursor), and it STEPS INTO
+\           colon words (it descends through docol/EXIT, tracking its own call stack),
+\           just like the Python ember hopping into a definition. Primitives are
+\           atomic (machine code). The code panel decodes linearly like `see`, so on a
+\           backward jump the cursor hops up; cells it has passed are shown faint.
 \
 \ What stays in the Python `ember` (out of fr's reach): the ptrace backend that
-\ single-steps the *real* machine instructions, and the full multi-panel view. See
-\ DECISIONS.md. Depends on prelude.fr (see/trace/.s/.cfaname/'lit…/key) + term.fr.
+\ single-steps the *real* machine instructions, and its richer curses view (RETURN
+\ frames, dictionary, Nord palette). Depends on prelude.fr + term.fr.
 
 \ --- state -------------------------------------------------------------------
-variable ecfa        \ CFA of the word being stepped (for the title)
-variable ebody       \ first cell of its threaded body
+variable ecfa        \ CFA of the top-level word being stepped (the call root)
+variable ecur        \ CFA of the word we're *currently inside* (innermost frame)
 variable ebp         \ the step cursor: the next cell to execute
 variable dbp         \ scratch cursor used while drawing the thread
-variable edone       \ -1 once the body has reached EXIT / a branch
+variable edone       \ -1 once the top-level word has returned
 variable equit       \ -1 once the user has asked to quit
 variable estepn      \ how many cells we've executed so far
 
+\ Call stack: two parallel stacks pushed together on each descent into a colon
+\ word, popped together on EXIT. rstk = where to resume in the caller; cstk = the
+\ caller's word (so we can restore the title/thread and draw the RETURN panel).
+variable rstk  64 cells allot     variable rn
+variable cstk  64 cells allot     variable cn
+: rpush ( a -- )  rstk rn @ cells + !  rn @ 1+ rn ! ;
+: rpop  ( -- a )  rn @ 1- rn !  rstk rn @ cells + @ ;
+: cpush ( a -- )  cstk cn @ cells + !  cn @ 1+ cn ! ;
+: cpop  ( -- a )  cn @ 1- cn !  cstk cn @ cells + @ ;
+
 \ --- the stepper -------------------------------------------------------------
-\ estep runs the one cell at ebp on the live data stack and advances ebp. It
-\ *follows control flow*, mirroring the kernel's inner interpreter by moving ebp
-\ (it can't `execute` a branch — that would clobber estep's own IP):
-\   EXIT     -> done.
+\ estep runs the one cell at ebp on the live data stack and advances ebp,
+\ mirroring the kernel's inner interpreter by moving ebp (it can't `execute` a
+\ branch/EXIT without clobbering its own IP). It *steps into colon words*, just
+\ like the Python ember hopping through docol/EXIT:
+\   EXIT     -> pop a call frame (resume the caller); at the root, we're done.
 \   LIT n    -> push n, skip the inline value.
 \   BRANCH   -> ebp += inline offset (relative to the offset cell, as in fr.s).
 \   0BRANCH  -> pop the live flag; jump if it's 0, else fall through (cf. ZBRANCH).
-\   anything else -> `execute` it (a primitive or colon word), then step one cell.
+\   a colon word (codeword = docol) -> DESCEND: push a frame, ebp = its body.
+\   a primitive -> `execute` it (it's machine code; atomic), then step one cell.
 : estep ( -- )
-  ebp @ @                                                    ( cell )
-  dup 'exit    = if  drop  -1 edone !                                       exit  then
+  ebp @ @                                                    ( cfa )
+  dup 'exit = if  drop                              \ return from the current word
+    rn @ 0= if  -1 edone !  else  cpop ecur !  rpop ebp !  then               exit  then
   dup 'lit     = if  drop  ebp @ 8 + @         ebp @ 16 + ebp !  estepn @ 1+ estepn !  exit  then
   dup 'branch  = if  drop  ebp @ 8 + dup @ +   ebp !            estepn @ 1+ estepn !  exit  then
   dup '0branch = if  drop                          \ the flag is live on the data stack
     0= if  ebp @ 8 + dup @ +  ebp !  else  ebp @ 16 + ebp !  then
     estepn @ 1+ estepn !                                                    exit  then
-  execute  ebp @ 8 + ebp !  estepn @ 1+ estepn ! ;
+  dup @ 'docol = if                                \ a colon word: step into it
+    ebp @ 8 +  rpush                               \   resume after this cell in the caller
+    ecur @     cpush                               \   remember the caller word
+    dup  ecur !                                    \   we're now inside the callee
+    8 +  ebp !                                     \   ebp = callee body (cfa + 8)
+  else
+    execute  ebp @ 8 + ebp !                       \ a primitive: run it, step on
+  then
+  estepn @ 1+ estepn ! ;
+
+\ erun — step until the top-level word returns (run-to-end / autoplay).
+: erun ( -- )  begin  edone @ 0=  while  estep  repeat ;
+
+\ einit — set up to step <word> with its CFA on top (args already beneath it).
+: einit ( cfa -- )
+  dup ecfa !  dup ecur !  cell+ ebp !
+  0 edone !  0 equit !  0 estepn !  0 rn !  0 cn ! ;
 
 \ --- short text labels (fr has no string literals, so we spell them) ---------
 : .ember ( -- ) [char] e emit [char] m emit [char] b emit [char] e emit [char] r emit ;
 : .code  ( -- ) [char] c emit [char] o emit [char] d emit [char] e emit ;
 : .data  ( -- ) [char] d emit [char] a emit [char] t emit [char] a emit ;
+: .call  ( -- ) [char] c emit [char] a emit [char] l emit [char] l emit ;
 : .stepk ( -- ) [char] s emit [char] p emit [char] a emit [char] c emit [char] e emit
                 [char] = emit [char] s emit [char] t emit [char] e emit [char] p emit ;
+: .runk  ( -- ) [char] r emit [char] = emit [char] r emit [char] u emit [char] n emit ;
 : .quitk ( -- ) [char] q emit [char] = emit [char] q emit [char] u emit [char] i emit [char] t emit ;
 : .done  ( -- ) [char] d emit [char] o emit [char] n emit [char] e emit ;
 
@@ -82,27 +116,37 @@ variable estepn      \ how many cells we've executed so far
   else  .cfaname                                                              dbp @ 8 +  dbp !
   then then then then
   reset space ;
-: draw-thread ( -- )              \ decode the whole body, highlighting ebp
-  ebody @ dbp !
+: draw-thread ( -- )              \ decode the *current* word's body, highlighting ebp
+  ecur @ cell+ dbp !
   begin  dbp @ @ 'exit =  >r  draw-tok  r>  until ;
 
+\ The call path: the enclosing words (cstk, outermost first) then the current one,
+\ e.g.  cube > square .  This is ember.fr's RETURN panel.
+variable ci
+: draw-call ( -- )
+  0 ci !
+  begin  ci @ cn @ <  while
+    cstk ci @ cells + @  .cfaname  space [char] > emit space
+    ci @ 1+ ci !
+  repeat
+  1 sgr  ecur @ .cfaname  reset ;     \ innermost (current) word, bold
+
 : draw-status ( -- )
-  edone @ if  2 sgr .done reset  else  .stepk  then
+  edone @ if  2 sgr .done reset  else  .stepk  space space .runk  then
   space space  .quitk ;
 
 : draw ( -- )                     \ one full frame (clear + repaint)
   clear
   1 2 at  6 fg bold  .ember  [char] : emit  space  ecfa @ .cfaname  reset
           space space  [char] # emit  estepn @ .n
-  3 2 at  2 sgr .code reset    3 9 at  draw-thread
-  5 2 at  2 sgr .data reset    5 9 at  .s
-  7 2 at  draw-status ;
+  3 2 at  2 sgr .call reset    3 9 at  draw-call
+  5 2 at  2 sgr .code reset    5 9 at  draw-thread
+  7 2 at  2 sgr .data reset    7 9 at  .s
+  9 2 at  draw-status ;
 
 \ --- the event loop ----------------------------------------------------------
 : ember ( cfa -- )                \ usage:  <args> ' <word> ember
-  dup ecfa !
-  cell+  dup ebody !  ebp !
-  0 edone !  0 equit !  0 estepn !
+  einit
   raw-on  hide-cursor
   begin
     draw
@@ -110,9 +154,10 @@ variable estepn      \ how many cells we've executed so far
     dup 0<              if  drop  -1 equit !
     else dup [char] q = if  drop  -1 equit !
     else dup 27 =       if  drop  -1 equit !        \ Esc
+    else dup [char] r = if  drop  erun              \ run to the end
     else dup [char] s = over 32 = or if  drop  edone @ 0= if estep then
     else drop
-    then then then then
+    then then then then then
     equit @
   until
   show-cursor  reset  raw-off  cr  bye ;
