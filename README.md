@@ -258,8 +258,9 @@ new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checki
       and decode `%rax` at each `jmp *(%rax)` dispatch. `5 ' square watch` →
       `… execute square dup * ; bye` — the real engine traced, observed entirely from fr.
       So the debugger backend that "stayed in Python" now runs in fr too.
-- [x] **live.fr** — `ember`'s visual stepper, **on the live ptrace backend**: the TUI drives
-      the *real* engine (via `ptrace.fr`), reading the data stack with `PEEKDATA` out of the
-      running child. `5 ' square live` shows the `trail` of real dispatches and the live stack
-      stepping `5 → 5 5 → 25`. The Python `ember` is now only the *more mature* UI (Nord curses,
-      dictionary panel) — every capability it had, fr now has too.
+- [x] **live.fr** — `ember`'s exact `call`/`code`/`data` view, **on the live ptrace backend**:
+      the TUI drives the *real* engine (via `ptrace.fr`). It tracks the live call nesting from
+      the dispatch stream (`call` shows `cube > square`, `code` is the current word's body with
+      the live cell highlit) and reads the data stack with `PEEKDATA` (`data` steps `5 → 5 5 →
+      25`). The Python `ember` is now only the *more mature* UI (Nord curses, dictionary panel)
+      — every capability it had, fr now has too.

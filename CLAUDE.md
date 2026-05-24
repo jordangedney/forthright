@@ -57,13 +57,14 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the
   `ssstep`/`getregs`/`peekdata`. `watch` drives the *real* fr engine: fork (child shares the
   memory image, so the parent's dictionary decodes the child's CFAs), single-step to each
   `jmp *(%rax)` boundary, name `%rax`. `5 ' square watch` → `… execute square dup * ; bye`.
-- **`live.fr`** — `ember.fr`'s panels on the **live ptrace backend** (`ptrace.fr` + `term.fr`):
-  the visual stepper drives the *real* engine, reading the data stack with `peekdata` out of
-  the running child. `./fr prelude.fr term.fr ptrace.fr live.fr` then `5 ' square live` (or
-  `./ember-fr --live`). `trail` shows the live dispatch, `data` the real peeked stack
-  (`5 → 5 5 → 25`). So the Python `ember`'s NativeVM backend is now self-hosted too; the
-  Python explorer remains only as the more *mature* UI (Nord curses, dictionary panel), not
-  a capability fr lacks.
+- **`live.fr`** — `ember.fr`'s exact `call`/`code`/`data` view on the **live ptrace backend**
+  (`ptrace.fr` + `term.fr`): the visual stepper drives the *real* engine. It tracks the live
+  call nesting by detecting `docol`-entries/`EXIT`s in the dispatch stream (so `call` shows
+  `cube > square` and `code` is the current word's body with the live cell highlighted), and
+  reads the data stack with `peekdata` out of the child (`data` steps `5 → 5 5 → 25`). Run
+  `./fr prelude.fr term.fr ptrace.fr live.fr` then `5 ' square live` (or `./ember-fr --live`).
+  So the Python `ember`'s NativeVM backend is now self-hosted too; the Python explorer remains
+  only as the more *mature* UI (Nord curses, dictionary panel), not a capability fr lacks.
 - **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted), built on the
   prelude. `check{ … }`
   infers a phrase's `( in -- out )` by abstract stack simulation; `def name ( decl ) body ;`

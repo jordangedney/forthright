@@ -90,13 +90,13 @@ assembly is a throwaway bootstrap.
   parity with the Python ember's *core*; what's left to close the gap:
   - **Self-host the ptrace backend — DONE.** `ptrace.fr`'s `watch` forks the running fr,
     single-steps to each `jmp *(%rax)` boundary, and decodes `%rax` via the shared dictionary;
-    **`live.fr`** wraps that in a term.fr TUI — the visual stepper driving the *real* engine,
-    reading the live data stack with `peekdata` (`5 ' square live` → trail + a stack stepping
-    `5 → 5 5 → 25`). So the Python `ember` is now capability-redundant; what it still has over
-    the fr explorers is *polish*, not power:
+    **`live.fr`** wraps that in a term.fr TUI with `ember.fr`'s exact `call`/`code`/`data` view
+    — the visual stepper driving the *real* engine. It tracks the live call nesting by spotting
+    `docol`-entries/`EXIT`s in the dispatch stream (`call` shows `cube > square`, `code` is the
+    current word's body with the live cell highlit), and reads the data stack with `peekdata`.
+    So the Python `ember` is now capability-redundant; what it still has is *polish*, not power:
   - **Polish toward the Python look.** Nord 256-colour palette, a dictionary panel, a live
-    edit line (type/define words in-TUI), reconstructing the full call/code view on the live
-    backend (track the child's return stack via `%rbp` to know word boundaries).
+    edit line (type/define words in-TUI), buffered redraws (one `write` per frame, not per byte).
   - **Buffer redraws.** `term.fr` emits one `write(2)` per byte; a frame is many tiny
     syscalls (flicker). Render into a string buffer and `type` it once. Wants `s"`-style
     string building (or just a scratch buffer + `c!` cursor) — a good prelude addition.
