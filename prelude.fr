@@ -26,6 +26,7 @@
 \ --- comparison --------------------------------------------------------------
 : >      ( a b -- f )  swap < ;
 : 0=     ( n -- f )    0 = ;
+: 0<     ( n -- f )    0 < ;
 
 \ --- bitwise -----------------------------------------------------------------
 : invert ( x -- ~x )   negate 1- ;   \ two's complement: ~x = -x - 1 (we have no xor)
@@ -67,7 +68,7 @@ variable up
 \ (Through a pipe `key` competes with the interpreter for stdin; it's meant for
 \ an interactive tty.)  syscall3: ( a1 a2 a3 n -- ret ).
 variable keybuf
-: key ( -- c )   0 keybuf 1 0 syscall3 drop  keybuf c@ ;
+: key ( -- c )   0 keybuf 1 0 syscall3  1 < if  -1  else  keybuf c@  then ;  \ -1 on EOF
 
 \ --- see: a self-hosted thread decoder (fr disassembling itself) -------------
 \ Names for the headerless engine words, from the kernel's `sys` table:

@@ -37,7 +37,14 @@ holds two pieces:
   (`cat prelude.fr term.fr …`). ANSI output (`clear at fg bg sgr bold reset
   hide-cursor show-cursor`) and termios raw/cbreak mode via `ioctl` (`raw-on`/`raw-off`
   clear `ICANON|ECHO`; `term-size` reads `TIOCGWINSZ`). With `key` + `see` + `trace`,
-  this is the full substrate for an interactive ember in fr — only the TUI loop is left.
+  this is the full substrate for an interactive ember in fr.
+- **`ember.fr`** — the **self-hosted ember**: an interactive visual single-stepper written
+  in fr (the fr-native analog of the Python `ember`). `<args> ' <word> ember` steps the
+  word's threaded body cell by cell on the live data stack, drawing a `code`/`data` panel
+  with the current cell highlighted (built on `term.fr` + `see`/`trace`). `space`/`s` step,
+  `q`/`Esc` quit. Straight-line + literals only (stops at branches, like `trace`). Launch
+  via `./ember-fr` (a Python pty bridge — fr's `raw-on` needs a real tty). The Python
+  `ember` keeps what fr can't do: the `ptrace` backend and the full multi-panel debugger.
 - **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted), built on the
   prelude. `check{ … }`
   infers a phrase's `( in -- out )` by abstract stack simulation; `def name ( decl ) body ;`
@@ -50,17 +57,16 @@ holds two pieces:
   Needed `execute` (kernel prim, run a CFA), `'` (prelude tick), and the anvil `check-body`
   refactor (check a compiled body by CFA, not stdin tokens). `forge-reference.py` = Python spec.
 
-Naming map: **forthright** (project) · **fr** (the Forth) · **ember** (the explorer) ·
-**anvil** (reserved name for the not-yet-built verifier).
+Naming map: **forthright** (project) · **fr** (the Forth) · **ember**/**ember.fr** (the
+explorer, in Python and now self-hosted) · **anvil** (the verifier) · **forge** (synthesis).
 
 **File conventions.** Forth source uses the `.fr` extension (the kernel `fr.s` is GNU
-assembler). The project's direction is to **self-host its tooling in fr** once fr is capable
-enough, keeping the whole trust base small/auditable. Until then, host-language *reference
-specs* track the intended behavior, and **must be kept in sync as the host-language tools
-gain features**:
-- `anvil-reference.py` — Python spec for the future `anvil.fr` (stack-effect verifier).
-- `ember.fr` — a Forth-comment spec/TODO mirroring `ember`'s features. **When you add a
-  feature to the Python `ember`, add a matching line to `ember.fr`.**
+assembler). The project's direction is to **self-host its tooling in fr**, keeping the whole
+trust base small/auditable — `anvil.fr`, `forge.fr`, `term.fr`, and now `ember.fr` are all
+self-hosted. The remaining host-language piece is `ember` (Python), whose `ptrace` backend
+fr can't replace; its `anvil-reference.py`/`forge-reference.py` *reference specs* track
+intended behavior and **must be kept in sync as those tools gain features**. `ember.fr` is
+launched via the `ember-fr` pty bridge (host-glue, like ember's ptrace backend).
 
 ## Commands
 
@@ -70,16 +76,21 @@ echo '3 4 + 5 * .' | ./fr  # fr is a REPL: reads Forth from stdin until EOF
 ./fr                       # interactive; Ctrl-D / `bye` to quit
 ( cat prelude.fr anvil.fr; echo 'check{ dup dup * * }' ) | ./fr   # self-hosted verifier -> ( x -- y )
 
-./ember                    # TUI driving the real ./fr via ptrace (Linux; needs ~76x20)
+./ember                    # Python TUI driving the real ./fr via ptrace (Linux; needs ~76x20)
 ./ember --python           # TUI on the pure-Python model instead
 ./ember --selftest         # headless check of the Python model  (the "test suite")
 ./ember --native-selftest  # headless check that drives ./fr under ptrace
+
+./ember-fr "5 ' square ember"   # the SELF-HOSTED stepper: ember.fr under a pty (real tty)
+./ember-fr --selftest           # headless pty check of ember.fr (scripts keystrokes)
+./test.sh                       # build everything + run all checks (the one-command answer)
 ```
 
-There is no test framework; correctness is asserted by the two `--selftest` modes. After
-changing `fr.s`, rebuild and run both: `./build.sh && ./ember --selftest >/dev/null &&
-./ember --native-selftest | tail -1` (expect `NATIVE PASS`). The native backend reads
-`fr`'s ELF symbol table, so **keep the binary unstripped** (`build.sh` already does).
+There is no test framework; `./test.sh` is the one-command answer (builds, then runs the
+kernel/prelude/anvil/forge/term/ember checks + the Python reference specs — expect
+`ALL CHECKS PASSED`). The `--selftest` modes are the individual assertions it calls. The
+native ember backend reads `fr`'s ELF symbol table, so **keep the binary unstripped**
+(`build.sh` already does).
 
 ## fr.s architecture (the Forth kernel)
 

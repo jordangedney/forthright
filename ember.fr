@@ -1,57 +1,105 @@
-\ ember.fr — spec / TODO for a future self-hosted ember, written in fr Forth.
+\ ember.fr — the self-hosted ember: an interactive, visual single-stepper for fr,
+\ written in fr. Launch it with the `ember-fr` script, which gives fr a real tty
+\ (raw-mode key input needs one — a pipe won't do):
 \
-\ Not runnable yet: it's a living checklist that mirrors the Python `ember`
-\ (the threaded-code explorer). RULE: whenever a feature is added to the Python
-\ ember, add a matching line here, so that when fr is capable enough to host its
-\ own explorer we already have the to-do list. (`anvil-reference.py` plays the
-\ same role for `anvil.fr`.)
+\     ./ember-fr "5 ' square ember"      \ step `square` with 5 on the stack
+\     ./ember-fr --selftest              \ headless pty check
 \
-\ `\` is a line comment and `( ... )` a stack/inline comment — fr does not have
-\ either word yet, so this file is documentation until those land. Status keys:
-\   [x] implemented in the Python ember      [ ] not yet
-\   {need: ...} = fr capabilities required before this can be ported to fr
-
-\ UPDATE: the introspection half is now SELF-HOSTED in prelude.fr — `see` decodes
-\ any definition (the THREAD-panel content) and `trace` single-steps a word on the
-\ live stack, printing it each step (ember's step view, no ptrace/curses).
-\ UPDATE 2: the input gate is open — the kernel now has `syscall3 ( a1 a2 a3 n --
-\ ret )`, a raw Linux syscall (read/write/ioctl all fit in 3 args). prelude.fr
-\ adds `key` (read one byte).
-\ UPDATE 3: term.fr now provides the terminal substrate in fr — `clear at fg/bg`
-\ (ANSI), `raw-on/raw-off` (cbreak via ioctl, pty-validated), `term-size`. So the
-\ model (see/trace), input (key/raw-on), and output (term.fr) sides are ALL self-
-\ hosted now. What's left for a full self-hosted ember is purely the TUI itself in
-\ fr: the panel layout drawn with at/fg, and the keypress event loop (key -> step/
-\ run/edit), reusing see's decode + trace's stepping. A redraw should buffer escapes
-\ into one `type` (term.fr emits byte-by-byte today — see its header note).
+\ This is the fr-native analog of the Python `ember`. Where that one ptraces the
+\ real engine and draws seven panels, this steps a word's threaded body on the live
+\ data stack and paints it with term.fr. All three sides are now self-hosted: the
+\ model (see/trace), the input (key/raw-on), the output (term.fr). This file is just
+\ the loop that ties them together.
 \
-\ === The model (the easy half — mostly arithmetic + memory) ===============
-\ [x] data stack + return stack mirrors of fr's two stacks   {need: @ ! arrays}
-\ [x] dictionary: link | flags+len | name | codeword, FIND by name
-\ [x] inner interpreter: NEXT dispatch, docol/EXIT hops
-\ [x] cells: LIT+value, EXIT, BRANCH+offset, ZBRANCH(0branch)+offset
-\ [x] step one cell; run-to-halt; detect underflow / halt
-\ [ ] bounded body decode: stop at EXIT / backward branch / non-code cell
-\         {need: @ , signed compare (have: < > 0=)}
+\   keys :  space / s = step one cell      q / Esc = quit
+\   scope:  straight-line words + literals (like `trace`); it stops at branches.
+\
+\ What stays in the Python `ember` (out of fr's reach): the ptrace backend that
+\ single-steps the *real* machine instructions, and the full multi-panel view. See
+\ DECISIONS.md. Depends on prelude.fr (see/trace/.s/.cfaname/'lit…/key) + term.fr.
 
-\ === Driving the real fr (the hard half) ==================================
-\ [x] launch fr, single-step machine instructions, stop at `jmp *(%rax)`
-\ [x] read live regs (%rsi=IP, %rsp/%rbp stacks) + /proc/pid/mem
-\ [x] walk the live dictionary from var_latest; decode thread around %rsi-8
-\ [x] preserve last clean snapshot at the input-read pause (skip rsp junk)
-\         {need: ptrace + process control from fr — far off; likely needs
-\          new syscall-exposing primitives. May stay external indefinitely.}
+\ --- state -------------------------------------------------------------------
+variable ecfa        \ CFA of the word being stepped (for the title)
+variable ebody       \ first cell of its threaded body
+variable ebp         \ the step cursor: the next cell to execute
+variable dbp         \ scratch cursor used while drawing the thread
+variable edone       \ -1 once the body has reached EXIT / a branch
+variable equit       \ -1 once the user has asked to quit
+variable estepn      \ how many cells we've executed so far
 
-\ === The TUI (presentation) ===============================================
-\ [x] panels: THREAD, DATA, RETURN, DICTIONARY, OUTPUT, input, status/legend
-\ [x] Nord palette; exec colour coding (ip/stack/hop/exec); pulse on change
-\ [x] blinking IP marker; active cell = %rsi-8; executed cells dimmed
-\ [x] modes: edit (type Forth) / run (s step, a auto, +/- speed, r run, n new)
-\ [x] idle = fr parked in the QUIT loop; quit via `bye` / Esc / Ctrl-D
-\         {need: raw-tty input + ANSI output — NOW REACHABLE via syscall3/key;
-\          terminal size is `0 TIOCGWINSZ <buf> ioctl` (syscall 16) away too}
+\ --- the stepper -------------------------------------------------------------
+\ estep runs the one cell at ebp on the live data stack and advances ebp, exactly
+\ as `trace` does: literals are pushed, words are `execute`d. It refuses to step a
+\ branch or EXIT (it sets edone), since those can't be single-stepped here.
+: estep ( -- )
+  ebp @ @                              ( cell )
+  dup trace-end? if  drop  -1 edone !  exit  then
+  dup 'lit = if
+    drop  ebp @ 8 + @                  \ push the inline literal
+    ebp @ 16 + ebp !
+  else
+    execute                            \ run the word at this CFA
+    ebp @ 8 + ebp !
+  then
+  estepn @ 1+ estepn ! ;
 
-\ === Notes ================================================================
-\ Likely porting order once fr grows: model first (after @ ! + strings), then
-\ the TUI (after terminal I/O), and the ptrace backend last (or never — it may
-\ remain a host-language tool). Until then this file is the running scorecard.
+\ --- short text labels (fr has no string literals, so we spell them) ---------
+: .ember ( -- ) [char] e emit [char] m emit [char] b emit [char] e emit [char] r emit ;
+: .code  ( -- ) [char] c emit [char] o emit [char] d emit [char] e emit ;
+: .data  ( -- ) [char] d emit [char] a emit [char] t emit [char] a emit ;
+: .stepk ( -- ) [char] s emit [char] p emit [char] a emit [char] c emit [char] e emit
+                [char] = emit [char] s emit [char] t emit [char] e emit [char] p emit ;
+: .quitk ( -- ) [char] q emit [char] = emit [char] q emit [char] u emit [char] i emit [char] t emit ;
+: .done  ( -- ) [char] d emit [char] o emit [char] n emit [char] e emit ;
+
+\ --- drawing -----------------------------------------------------------------
+\ The thread panel walks the body like `see`, colouring each cell by position:
+\ executed (before ebp) faint, the next cell (at ebp) bold yellow, upcoming plain.
+: tok-colour ( -- )
+  dbp @ ebp @ = if  1 sgr 3 fg   exit then    \ current : bold yellow
+  dbp @ ebp @ < if  2 sgr        exit then    \ executed: faint
+  reset ;                                       \ upcoming: normal
+: draw-tok ( -- )                 \ decode + print the cell at dbp, advance dbp
+  tok-colour
+  dbp @ @
+  dup 'exit    = if  drop [char] ; emit                                        dbp @ 8 +  dbp !
+  else dup 'lit    = if  drop [char] # emit  dbp @ 8 + @ .n                    dbp @ 16 + dbp !
+  else dup 'branch = if  drop [char] b emit space dbp @ 8 + @ .n              dbp @ 16 + dbp !
+  else dup '0branch = if  drop [char] 0 emit [char] b emit space dbp @ 8 + @ .n  dbp @ 16 + dbp !
+  else  .cfaname                                                              dbp @ 8 +  dbp !
+  then then then then
+  reset space ;
+: draw-thread ( -- )              \ decode the whole body, highlighting ebp
+  ebody @ dbp !
+  begin  dbp @ @ 'exit =  >r  draw-tok  r>  until ;
+
+: draw-status ( -- )
+  edone @ if  2 sgr .done reset  else  .stepk  then
+  space space  .quitk ;
+
+: draw ( -- )                     \ one full frame (clear + repaint)
+  clear
+  1 2 at  6 fg bold  .ember  [char] : emit  space  ecfa @ .cfaname  reset
+          space space  [char] # emit  estepn @ .n
+  3 2 at  2 sgr .code reset    3 9 at  draw-thread
+  5 2 at  2 sgr .data reset    5 9 at  .s
+  7 2 at  draw-status ;
+
+\ --- the event loop ----------------------------------------------------------
+: ember ( cfa -- )                \ usage:  <args> ' <word> ember
+  dup ecfa !
+  cell+  dup ebody !  ebp !
+  0 edone !  0 equit !  0 estepn !
+  raw-on  hide-cursor
+  begin
+    draw
+    key                                            ( c )
+    dup 0<              if  drop  -1 equit !
+    else dup [char] q = if  drop  -1 equit !
+    else dup 27 =       if  drop  -1 equit !        \ Esc
+    else dup [char] s = over 32 = or if  drop  edone @ 0= if estep then
+    else drop
+    then then then then
+    equit @
+  until
+  show-cursor  reset  raw-off  cr  bye ;

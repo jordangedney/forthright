@@ -91,13 +91,24 @@ flickery — buffering a redraw into a single `type` is a deliberate later step
 mode is validated once under a pty (a byte with no newline echoes immediately and
 exactly once → `ICANON` and `ECHO` are both off), since `ioctl` needs a real tty.
 
-### ember's introspection is self-hosted; its ptrace backend stays in Python
-The *introspection* half (decode a definition, step a word) *is* self-hosted —
-`see`/`trace` (prelude) plus `syscall3`/`key` for raw-tty, so a fr-native
-interactive TUI is now writable in principle. **What stays external:** the
-`NativeVM` ptrace backend (single-step the real fr, read `/proc/pid/mem`) — fr has
-no `ptrace`/`fork`/`waitpid` primitives, and that backend is a *host* debugging tool
-by nature, not part of the language's trust base. `ember.fr` tracks the rest.
+### a self-hosted ember exists (`ember.fr`); the ptrace backend stays in Python
+`ember.fr` is now a real interactive stepper *in fr* — `see`/`trace` for the model,
+`key`/`raw-on` for input, `term.fr` for output. It is deliberately a *subset* of the
+Python `ember`: it steps a word's threaded body on the live data stack (straight-line
++ literals, like `trace`), not the raw machine instructions. **What stays external:**
+the `NativeVM` ptrace backend (single-step the real fr, read `/proc/pid/mem`) — fr has
+no `ptrace`/`fork`/`waitpid` primitives, and that's a *host* debugging tool by nature,
+not part of the language's trust base.
+
+### ember.fr is launched by a pty bridge (`ember-fr`), and `q` exits fr
+`raw-on` does an `ioctl` on fd 0, which fails on a pipe — so `ember.fr` needs a real
+tty. **Why a pty launcher** (not e.g. teaching fr to read source files from argv): the
+pty bridge is ~80 lines of host-glue with no kernel cost, and parallels how the Python
+ember already drives fr; argv/file-loading is a worthwhile kernel feature but a much
+bigger change (a multi-source input layer) — deferred to ROADMAP. **Why `q` calls
+`bye`:** `ember-fr` is a dedicated single-shot launcher (like `htop`), so quitting the
+view quits fr, and the bridge sees EOF and exits cleanly. **Spelled-out labels** (`code`
+`data` `done` via per-char `emit`) are a stopgap until fr has string literals (`s"`).
 
 ### ember runs fr at native speed via a breakpoint, single-steps only for `s`
 ember bootstraps the prelude and runs `r` by setting an `int3` at the `read`

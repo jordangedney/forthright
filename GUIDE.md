@@ -26,9 +26,10 @@ and **forges** its own verified code.
 | `forge.fr` | generate→check→repair loop, written *in fr* (synthesizes verified words) |
 | `term.fr` | terminal control *in fr*: ANSI escapes + termios raw mode (the TUI substrate) |
 | `ember` | a Python/curses TUI that `ptrace`s the real `fr` and animates it |
+| `ember.fr` | the **self-hosted** ember: an interactive stepper *in fr* (run via `ember-fr`) |
+| `ember-fr` | a Python pty bridge that launches `ember.fr` (fr's `raw-on` needs a real tty) |
 | `build.sh` | `as` + `ld` → `fr` |
 | `anvil-reference.py`, `forge-reference.py` | Python specs for the fr versions |
-| `ember.fr` | a feature spec/TODO for an eventual self-hosted ember |
 
 Naming map: **forthright** (project) · **fr** (the language) · **anvil** (verifier)
 · **forge** (synthesizer) · **ember** (explorer).
@@ -277,10 +278,12 @@ done for `/` and `mod`).
 ## 9. State of the project
 
 Built and working, all self-hosted where it counts: the kernel, the prelude (with a
-self-hosted disassembler `see`), the verifier `anvil`, and the synthesis loop
-`forge` — fr writing, verifying, and forging its own code. `ember` (the visual
-explorer) stays in Python because it needs `ptrace` and raw-tty input that fr has no
-primitives for; `ember.fr` tracks what a self-hosted version would need.
+self-hosted disassembler `see` and tracer `trace`), the verifier `anvil`, the
+synthesis loop `forge`, the terminal layer `term.fr`, and now `ember.fr` — an
+interactive visual stepper written in fr (`./ember-fr "5 ' square ember"`). fr writes,
+verifies, forges, and now *watches* its own code. The Python `ember` keeps only what
+fr can't reach: the `ptrace` backend that single-steps the real machine instructions
+and its full multi-panel debugger view.
 
 Open directions if continuing: more `forge` targets / a smarter generator; pushing
 `s=`/`find`/`number` into the prelude for an even smaller kernel; allowing control

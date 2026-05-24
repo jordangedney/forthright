@@ -115,6 +115,28 @@ colon word pushes a frame onto `RETURN` (purple) and the panel switches to that
 word's body; `exit` pops back. The Python engine is a deliberate superset of fr
 (adds `over rot / mod = < > negate .s`) so there's more to poke at.
 
+### …and ember.fr — the self-hosted version
+
+`ember.fr` is the same idea, **written in fr**: an interactive visual stepper that
+walks a word's threaded body on the live data stack, one cell per keypress, with the
+current cell highlighted and a live `data` panel. It's built entirely on fr — `see`/
+`trace` for the model, `key`/`raw-on` (the kernel's `syscall3` → `ioctl`) for input,
+`term.fr` for ANSI output. A small Python pty bridge (`ember-fr`) launches it, because
+`raw-on` needs a real terminal.
+
+    ./ember-fr "5 ' square ember"    # step `square` with 5 on the stack
+    ./ember-fr --selftest            # headless pty check
+
+```
+ ember: square  #2          space/s = step one cell
+ code   dup * ;             q / Esc = quit
+ data   25                  (straight-line + literals, like trace)
+```
+
+It steps straight-line definitions (it stops at branches, like `trace`); the Python
+`ember` keeps what fr can't reach — the `ptrace` backend over real machine
+instructions, and the full multi-panel debugger.
+
 ## Verifying it: anvil.fr (self-hosted)
 
 `anvil.fr` is the payoff — a stack-effect verifier **written in fr**, so the whole
@@ -197,3 +219,14 @@ new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checki
       and the first passing both is "forged". Needed `execute` (kernel), `'`
       (prelude), and anvil checking *compiled bodies* by CFA. fr writes, verifies,
       and forges its own code. (`forge-reference.py` is the Python spec.)
+- [x] **`trace`** (prelude.fr) — single-step a word on the live stack, printing it
+      each step; the fr-native analog of ember's step view. Needed `sp@`/`sp0`
+      (kernel) for `depth`/`.s`.
+- [x] **`syscall3`** (kernel) + **`key`** (prelude) — one generic Linux syscall
+      (≤3 args: read/write/ioctl), opening raw-tty I/O to fr.
+- [x] **term.fr** — terminal control *in fr*: ANSI escapes (`clear at fg bg`) and
+      termios cbreak via `ioctl` (`raw-on`/`raw-off`, validated under a pty).
+- [x] **ember.fr** — the **self-hosted ember**: an interactive visual stepper written
+      in fr (`./ember-fr "5 ' square ember"`). Steps a word's threaded body on the live
+      stack, one cell per keypress, current cell highlighted. fr now writes, verifies,
+      forges, *and watches* its own code — only the ptrace backend stays in Python.

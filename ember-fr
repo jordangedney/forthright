@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""ember-fr — launch the self-hosted fr ember (ember.fr) under a pty.
+
+fr's `raw-on` does an ioctl on fd 0, so it needs a *real* terminal; a plain pipe
+won't do. This hands fr a pty, preloads prelude.fr + term.fr + ember.fr, runs a
+stepping command, and bridges your terminal to it. (This launcher is host-glue —
+the TUI itself is entirely in ember.fr; see DECISIONS.md.)
+
+    ./ember-fr ["<cmd>"]     interactive; default cmd:  5 ' square ember
+    ./ember-fr --selftest    headless: script keystrokes, assert the stack steps
+"""
+import os, sys, pty, select, struct, termios, tty, fcntl
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+LIB  = ("prelude.fr", "term.fr", "ember.fr")
+
+
+def library():
+    blob = b""
+    for name in LIB:
+        with open(os.path.join(HERE, name), "rb") as fh:
+            blob += fh.read()
+    return blob
+
+
+def spawn(cmd, rows=24, cols=80):
+    """Fork ./fr onto a pty, set it raw (no echo), preload the library + cmd."""
+    pid, fd = pty.fork()
+    if pid == 0:                                   # child becomes fr
+        os.chdir(HERE)
+        os.execv("./fr", ["./fr"])
+        os._exit(127)
+    try:                                           # make term-size meaningful
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+    except OSError:
+        pass
+    try:                                           # raw: the library load won't echo
+        a = termios.tcgetattr(fd)
+        a[3] &= ~(termios.ICANON | termios.ECHO)
+        termios.tcsetattr(fd, termios.TCSANOW, a)
+    except termios.error:
+        pass
+    # one write: fr reads it all in a single refill (no token splits across reads)
+    os.write(fd, library() + (cmd + "\n").encode())
+    return pid, fd
+
+
+def drain(fd, timeout=0.4):
+    out = b""
+    while True:
+        r, _, _ = select.select([fd], [], [], timeout)
+        if not r:
+            break
+        try:
+            chunk = os.read(fd, 65536)
+        except OSError:
+            break
+        if not chunk:
+            break
+        out += chunk
+    return out
+
+
+def selftest():
+    """Step `5 square` cell by cell, asserting the stack evolves 5 -> 5 5 -> 25."""
+    pid, fd = spawn("5 ' square ember")
+    frames = drain(fd, 0.6)                         # boot + first frame
+    for key in (b"s", b"s", b"s"):                  # step dup, *, then EXIT (done)
+        os.write(fd, key)
+        frames += drain(fd, 0.4)
+    os.write(fd, b"q")                              # quit -> fr exits
+    frames += drain(fd, 0.4)
+    try:
+        os.close(fd)
+        os.waitpid(pid, 0)
+    except OSError:
+        pass
+    checks = [("dup", b"dup" in frames),            # thread decoded
+              ("25",  b"25"  in frames),            # square 5 -> 25 on the stack
+              ("done", b"done" in frames)]          # reached EXIT, stepper halted
+    ok = all(c[1] for c in checks)
+    if ok:
+        print("EMBER-FR PASS")
+        return 0
+    print("EMBER-FR FAIL (missing: " +
+          " ".join(name for name, hit in checks if not hit) + ")")
+    return 1
+
+
+def interactive(cmd):
+    rows, cols = 24, 80
+    try:
+        ws = fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, b"\0" * 8)
+        rows, cols, _, _ = struct.unpack("HHHH", ws)
+    except OSError:
+        pass
+    pid, fd = spawn(cmd, rows, cols)
+    stdin = sys.stdin.fileno()
+    old = termios.tcgetattr(stdin)
+    try:
+        tty.setraw(stdin)                           # our keys pass straight to fr
+        while True:
+            r, _, _ = select.select([stdin, fd], [], [])
+            if fd in r:
+                try:
+                    data = os.read(fd, 65536)
+                except OSError:
+                    break
+                if not data:
+                    break
+                os.write(sys.stdout.fileno(), data)
+            if stdin in r:
+                data = os.read(stdin, 65536)
+                if not data:
+                    break
+                os.write(fd, data)
+    finally:
+        termios.tcsetattr(stdin, termios.TCSADRAIN, old)
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
+def main():
+    args = sys.argv[1:]
+    if args and args[0] == "--selftest":
+        sys.exit(selftest())
+    interactive(args[0] if args else "5 ' square ember")
+
+
+if __name__ == "__main__":
+    main()

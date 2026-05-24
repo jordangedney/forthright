@@ -30,6 +30,7 @@ check "anvil: branch imbalance"  "$( ( cat prelude.fr anvil.fr; echo 'def x ( n 
 check "forge: synthesizes dup *" "$( ( cat prelude.fr anvil.fr forge.fr; echo forge ) | ./fr )"    "dup * <"
 check "ember: python model"      "$(./ember --selftest)"                                            "ALL PASS"
 check "ember: native (ptrace)"   "$(timeout 60 ./ember --native-selftest)"                          "NATIVE PASS"
+check "ember.fr: pty stepper"     "$(timeout 30 ./ember-fr --selftest)"                              "EMBER-FR PASS"
 check "anvil-reference.py spec"   "$(python3 anvil-reference.py --selftest)"                         "ALL PASS"
 check "forge-reference.py"        "$(python3 forge-reference.py)"                                    "FORGED"
 
