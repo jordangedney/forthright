@@ -28,7 +28,7 @@ and **forges** its own verified code.
 | `ember` | a Python/curses TUI that `ptrace`s the real `fr` and animates it |
 | `ptrace.fr` | ptrace *in fr* (`syscall6`); `watch` drives the real engine — a self-hosted NativeVM |
 | `ember.fr` | the **self-hosted explorer**: a visual stepper driving the *real* engine via ptrace |
-| `ember-fr` | one-line shell launcher (`exec ./fr prelude.fr term.fr ptrace.fr ember.fr`) |
+| `ember-fr` | shell launcher: runs `ember.fr` and pre-runs your command (default `5 ' square ember`) |
 | `ember-pty` | Python harness for *scripted* (paced) pty testing of `ember.fr` |
 | `build.sh` | `as` + `ld` → `fr` |
 | `anvil-reference.py`, `forge-reference.py` | Python specs for the fr versions |

@@ -1,12 +1,21 @@
-#!/bin/sh
-# ember-fr — launch the self-hosted explorer. No Python needed: fr loads the library
-# from its file arguments, and the terminal itself is the real tty that `raw-on` wants.
-# Then type a stepping command at the (prompt-less) REPL, e.g.:
+#!/usr/bin/env bash
+# ember-fr — launch the self-hosted explorer (no Python). Give it a stepping command,
+# or get the default `5 ' square ember`. Then drive it with the keys shown in the TUI:
 #
-#     5 ' square ember
-#     : cube dup square * ;   3 ' cube ember
+#     space / s   step one cell        r   run to the end
+#     e           edit (type a new     q   quit
+#                 target, e.g. 3 square)
 #
-# Keys in the TUI: space/s step · r run · e edit (type a new target) · q quit.
-# (Scripted/headless testing needs to pace keystrokes through a pty — see ember-pty.)
+#   ./ember-fr                                          # step `square` on 5 (default)
+#   ./ember-fr "3 ' square ember"                       # step `square` on 3
+#   ./ember-fr ": cube dup square * ;  3 ' cube ember"  # define a word, then step it
+#
+# How it works: it runs the real explorer —
+#     ./fr prelude.fr term.fr ptrace.fr ember.fr  <your command>
+# passing your command as a *file* argument (process substitution), so it runs at
+# startup while your keystrokes still come from the terminal (the tty `raw-on` needs).
+# For totally hands-on use you can run that line yourself and just type the command.
 cd "$(dirname "$0")" || exit 1
-exec ./fr prelude.fr term.fr ptrace.fr ember.fr
+cmd="$*"
+[ -z "$cmd" ] && cmd="5 ' square ember"
+exec ./fr prelude.fr term.fr ptrace.fr ember.fr <(printf '%s\n' "$cmd")

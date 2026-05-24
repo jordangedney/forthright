@@ -4,7 +4,8 @@
 \ stack. (For a lighter, no-ptrace text stepper, the prelude's `trace` models it.)
 \
 \     ./fr prelude.fr term.fr ptrace.fr ember.fr      then type:  5 ' square ember
-\     ./ember-fr                                       same, as a one-line shell launcher
+\     ./ember-fr ["5 ' square ember"]                  shell launcher (pre-runs a command;
+\                                                       no arg = the default `5 ' square ember`)
 \
 \ Panels (a Nord-coloured, bordered dashboard):
 \   call — the live call path (e.g. cube > square), inferred from the dispatch stream.

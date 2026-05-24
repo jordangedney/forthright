@@ -134,8 +134,8 @@ It runs with **no Python at all**: the kernel loads the library from its file ar
 the terminal is the tty `raw-on` needs, and you type a command at the prompt:
 
     ./fr prelude.fr term.fr ptrace.fr ember.fr     # then type:  5 ' square ember
-    ./ember-fr                                      # ...or this one-line shell launcher
-    #   define your own first:  : cube dup square * ;   then  3 ' cube ember
+    ./ember-fr                                      # ...or the shell launcher (default: 5 square)
+    ./ember-fr ": cube dup square * ;  3 ' cube ember"   # it pre-runs whatever you pass
 
 ```
 ┌──────────────────────────────────────────────────────┐

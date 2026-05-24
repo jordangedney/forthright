@@ -98,7 +98,7 @@ echo '3 4 + 5 * .' | ./fr  # fr is a REPL: reads Forth from stdin until EOF
 ./ember --native-selftest  # headless check that drives ./fr under ptrace
 
 ./fr prelude.fr term.fr ptrace.fr ember.fr   # the SELF-HOSTED explorer (then type: 5 ' square ember)
-./ember-fr                      # same, as a one-line shell launcher (no Python)
+./ember-fr ["5 ' square ember"] # shell launcher (no Python); pre-runs a command, default 5 square
 ./ember-pty --selftest          # headless pty test of ember.fr; also --edit-selftest
 ./test.sh                       # core suite: kernel/prelude/anvil/forge/term + reference specs
 ./test-ember.sh                 # the explorer's own suite (ptrace, ember.fr, Python ember)
