@@ -1136,7 +1136,7 @@ def native_selftest():
               and "cube" in dict_names and saw_25_with_5)
 
     # bootstrap the prelude at native speed, then use a prelude word (see)
-    pf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prelude.fr")
+    pf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib", "prelude.fr")
     see_ok = False
     if os.path.exists(pf):
         with open(pf) as f:
@@ -1155,7 +1155,7 @@ def run_ui(stdscr, make_vm):
     curses.curs_set(0)
     vm = make_vm()
     if getattr(vm, "native", False):            # give the real fr the full vocabulary
-        pf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prelude.fr")
+        pf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib", "prelude.fr")
         if os.path.exists(pf):
             with open(pf) as f:
                 vm.bootstrap(f.read())

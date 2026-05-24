@@ -1,10 +1,14 @@
+include lib/prelude.fr			\ ember pulls in its own dependencies, so it
+include lib/term.fr			\ runs as just  ./fr ember.fr
+include lib/ptrace.fr
+
 \ ember.fr — the self-hosted explorer: a visual stepper driving the REAL fr engine
 \ under ptrace. It forks fr, runs a word in the child, and single-steps the child to
 \ each `jmp *(%rax)` dispatch boundary, reading the child's real registers and data
 \ stack. (For a lighter, no-ptrace text stepper, the prelude's `trace` models it.)
 \
-\     ./fr prelude.fr term.fr ptrace.fr ember.fr      then type:  5 ' square ember
-\     ./ember-fr                                       shell launcher (runs bare `ember`)
+\     ./fr ember.fr                  then type:  5 ' square ember
+\     ./ember-fr                     shell launcher (runs bare `ember`)
 \
 \ `ember` takes a target on the stack (`5 ' square ember`) or, bare, boots into the edit
 \ prompt (`e`) so you choose one. The edit line is a REPL: each line is compiled and stepped,

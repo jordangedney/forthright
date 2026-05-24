@@ -13,7 +13,7 @@ keystrokes), so this drives ember.fr under a pty.
 import os, sys, pty, select, struct, termios, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-FILES = ("prelude.fr", "term.fr", "ptrace.fr", "ember.fr")
+FILES = ("ember.fr",)               # ember.fr include`s its own deps (lib/prelude, term, ptrace)
 
 
 def spawn(cmd, rows=24, cols=80):

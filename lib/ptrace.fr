@@ -1,9 +1,11 @@
+include lib/prelude.fr			\ depends on: prelude
+
 \ ptrace.fr — process control and ptrace, in fr, built on the kernel's syscall6.
 \ This is the debugger backend that "had to live in Python" — self-hosted. ptrace
 \ turns out not to be special at all: it's syscall 101, so syscall6 reaches it.
 \
-\     ( cat prelude.fr ptrace.fr; echo trace-demo )        | ./fr   \ single-step proof
-\     ( cat prelude.fr ptrace.fr; echo "5 ' square watch" ) | ./fr  \ trace the real engine
+\     ( echo trace-demo )        | ./fr lib/ptrace.fr   \ single-step proof
+\     ( echo "5 ' square watch" ) | ./fr lib/ptrace.fr  \ trace the real engine
 \
 \ trace-demo forks a child that asks to be traced (PTRACE_TRACEME) and stops itself;
 \ the parent single-steps it and reads RIP before/after, proving the step advanced it.

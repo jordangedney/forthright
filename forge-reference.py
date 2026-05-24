@@ -26,7 +26,7 @@ import subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FR = os.path.join(HERE, "fr")
-PRELUDE = open(os.path.join(HERE, "prelude.fr")).read()
+PRELUDE = open(os.path.join(HERE, "lib", "prelude.fr")).read()
 ANVIL = open(os.path.join(HERE, "anvil.fr")).read()
 
 # The generator's vocabulary (all real fr / prelude words).

@@ -1,8 +1,10 @@
+include lib/prelude.fr			\ depends on: prelude (u. invert 1+ spaces …)
+
 \ term.fr — terminal control for fr, written in fr. The substrate a self-hosted
 \ ember needs: ANSI escape output (cursor, colour, clear) and termios raw mode via
-\ the kernel's `syscall3` (ioctl). Load order mirrors the rest of the tooling:
+\ the kernel's `syscall3` (ioctl). Either `include lib/term.fr` from your program, or:
 \
-\     ( cat prelude.fr term.fr yourtui.fr ) | ./fr
+\     ./fr lib/prelude.fr lib/term.fr yourtui.fr
 \
 \ Depends on prelude.fr (u. invert 1+ ...). Together with `key` (prelude), `see`
 \ and `trace` (prelude), this is everything the introspection + I/O sides of an

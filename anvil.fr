@@ -1,3 +1,5 @@
+include lib/prelude.fr			\ depends on: prelude
+
 \ anvil.fr — a stack-effect verifier, written in fr (self-hosted).
 \
 \ The project thesis made literal: the error-correcting redundancy Forth lacks,

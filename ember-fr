@@ -10,12 +10,12 @@
 #   ./ember-fr "3 ' square ember"                       # step `square` on 3
 #   ./ember-fr ": cube dup square * ;  3 ' cube ember"  # define a word, then step it
 #
-# How it works: it runs the real explorer —
-#     ./fr prelude.fr term.fr ptrace.fr ember.fr  <your command>
-# passing your command as a *file* argument (process substitution), so it runs at
+# How it works: it runs the real explorer —  ./fr ember.fr <your command>
+# (ember.fr `include`s its own deps: lib/prelude.fr lib/term.fr lib/ptrace.fr).
+# Your command is passed as a *file* argument (process substitution), so it runs at
 # startup while your keystrokes still come from the terminal (the tty `raw-on` needs).
-# For totally hands-on use you can run that line yourself and just type the command.
+# For totally hands-on use you can run `./fr ember.fr` yourself and type the command.
 cd "$(dirname "$0")" || exit 1
 cmd="$*"
 [ -z "$cmd" ] && cmd="ember"
-exec ./fr prelude.fr term.fr ptrace.fr ember.fr <(printf '%s\n' "$cmd")
+exec ./fr ember.fr <(printf '%s\n' "$cmd")

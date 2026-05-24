@@ -1,3 +1,6 @@
+include lib/prelude.fr			\ depends on: prelude, anvil
+include anvil.fr
+
 \ forge.fr — generate -> check -> repair, SELF-HOSTED in fr.
 \
 \ The whole thesis, with nothing but fr: a breadth-first generator builds
@@ -5,8 +8,7 @@
 \ in each cell's stack effect; shape-valid candidates are actually run (`execute`)
 \ on examples to confirm intent; the first that passes both is "forged".
 \
-\ Load after the prelude and anvil:   ( cat prelude.fr anvil.fr forge.fr ) | ./fr
-\ then run:   forge
+\ Run it:   echo forge | ./fr forge.fr
 \
 \ As in forge.py, the generator (a search) stands in for an AI; the point is that
 \ nothing is accepted unless anvil — Forth checking Forth — approves the stack

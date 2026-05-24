@@ -19,14 +19,15 @@ if ./build.sh >/dev/null 2>&1; then printf 'ok\n\n'; else echo "BUILD FAILED"; e
 
 # --- ptrace.fr: process control + driving the real engine (pipe-testable) ------
 # fork a child, PTRACE_TRACEME + SINGLESTEP it, confirm RIP advanced.
-check "ptrace.fr: fr single-steps a child" "$( ( cat prelude.fr ptrace.fr; echo trace-demo ) | ./fr )" "MOVED"
+check "ptrace.fr: fr single-steps a child" "$( echo trace-demo | ./fr lib/ptrace.fr )" "MOVED"
 # watch: fr drives the REAL fr engine under ptrace and decodes the live dispatch.
-check "ptrace.fr: watch traces real engine" "$( ( cat prelude.fr ptrace.fr; echo "5 ' square watch" ) | ./fr )" "square dup *"
+check "ptrace.fr: watch traces real engine" "$( echo "5 ' square watch" | ./fr lib/ptrace.fr )" "square dup *"
 
 # --- ember.fr: the visual explorer on the live ptrace backend ------------------
 # ember-trace is the non-interactive core: it peeks the child's REAL data stack at
 # each dispatch (no tty needed), so it exercises the engine + branch/call following.
-LT="cat prelude.fr term.fr ptrace.fr ember.fr"
+# (ember.fr `include`s its own deps, so it loads with just  ./fr ember.fr)
+LT="cat ember.fr"
 check "ember.fr: live stack (5 square -> 5 5)"  "$( ( $LT; echo "5 ' square ember-trace" ) | ./fr )"  "5 5"
 check "ember.fr: follows if/then (abs -5)"      "$( ( $LT; echo ": abs dup 0< if negate then ;  -5 ' abs ember-trace" ) | ./fr )"  "negate"
 check "ember.fr: steps into colon (cube 3)"     "$( ( $LT; echo ": cube dup square * ;  3 ' cube ember-trace" ) | ./fr )"  "27"
