@@ -38,8 +38,8 @@ impossible when a human had to sit in the writing seat.
 - **forge** — the generate → check → repair loop. **Built** (`forge.fr`, self-hosted): a
   breadth-first search stands in for the AI generator, and nothing is accepted unless anvil
   approves the shape and an example run confirms intent.
-- **ember** — the explorer: *watch* the engine run, cell by cell. Built twice — the Python
-  `ember` (ptrace + curses) and the self-hosted `ember.fr`/`live.fr` (see below).
+- **ember** — the explorer: *watch* the engine run, cell by cell. The self-hosted `ember.fr`
+  drives the real engine under ptrace; the Python `ember` is the older, curses-rich one.
 - *(corpus)* — still open: generate-and-verify at scale to mint a synthetic training
   corpus, the one credible attack on Forth's "no training data" problem.
 
@@ -125,22 +125,21 @@ word's body; `exit` pops back. The Python engine is a deliberate superset of fr
 
 ### …and ember.fr — the self-hosted version
 
-`ember.fr` is the same idea, **written in fr**: an interactive visual stepper that
-walks a word's threaded body on the live data stack, one cell per keypress, with the
-current cell highlighted and a live `data` panel — a Nord-coloured, bordered dashboard
-(`term.fr` has true-colour `fg24`/`nord-*` words + `box` drawing), matching the Python
-ember's look. It's built entirely on fr — `see`/
-`trace` for the model, `key`/`raw-on` (`ioctl` via the kernel's `syscall6`) for input,
-`term.fr` for ANSI output. It runs with **no Python at all**: the kernel loads the
-library from its file arguments, then the terminal is the REPL (so `raw-on` has a real
-tty). Type a stepping command at the prompt:
+`ember.fr` is the same idea, **written in fr** — and it drives the *real* engine, not a
+model: it forks fr, runs the word in the child, and single-steps the child under ptrace
+(`ptrace.fr`) to each `jmp *(%rax)` dispatch, reading the child's actual registers and
+data stack with `PEEKDATA`. The view is a Nord-coloured, bordered dashboard (`term.fr`
+has true-colour `fg24`/`nord-*` words + `box` drawing), matching the Python ember's look.
+It runs with **no Python at all**: the kernel loads the library from its file arguments,
+the terminal is the tty `raw-on` needs, and you type a command at the prompt:
 
-    ./fr prelude.fr term.fr ember.fr      # then type:  5 ' square ember
-    #   (or define your own first:  : cube dup square * ;   then  3 ' cube ember)
+    ./fr prelude.fr term.fr ptrace.fr ember.fr     # then type:  5 ' square ember
+    ./ember-fr                                      # ...or this one-line shell launcher
+    #   define your own first:  : cube dup square * ;   then  3 ' cube ember
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  ember: cube  #2                                       │   (stepped INTO square)
+│  ember: cube  #2  real engine                          │   (stepped INTO square)
 │  call  cube > square                                   │
 │  code  dup * ;                                         │   (square's body, cursor highlit)
 │  data  3 3                                             │
@@ -149,18 +148,15 @@ tty). Type a stepping command at the prompt:
 └──────────────────────────────────────────────────────┘
 ```
 
-It **steps into colon words** — descending through `docol`/`EXIT` while tracking its
-own call stack — so the `code` panel switches to the callee and `call` shows the path
-`cube > square`, exactly like the Python ember hopping into a definition (primitives
-stay atomic). It also **follows control flow**: `0branch` pops the live flag and
-`branch` moves the cursor, so `if/else` and `begin/until` loops step too. `r` runs to
-the end, and **`e` is a live edit line** — type `3 square` or `2 3 + square` to re-target
-the stepper in place (numbers push, words run as setup, the last word is stepped), no
-restart needed. The `ember-fr` script is a convenience/test wrapper (it adds a pty so
-keystrokes can be scripted: `./ember-fr --selftest`). ember.fr *simulates* the engine;
-**`live.fr` drives the real one under ptrace** (see below), so the Python `ember` is no
-longer a capability fr lacks — only a more mature UI (RETURN frames, dictionary, Nord
-palette).
+It **steps into colon words** — it infers the call path from the live dispatch stream
+(`docol`-entries/`EXIT`s), so `code` switches to the callee and `call` shows `cube >
+square`. It **follows control flow** (it's the real engine — `if/else` and loops just
+work). `r` runs to the end, and **`e` is a live edit line** — type `3 square` or `2 3 +
+square` to re-target (it kills the child and forks a fresh one; numbers push, words run
+as setup, the last word is stepped). The non-interactive `ember-trace` prints the live
+stack per dispatch (no tty needed). The lighter, no-ptrace model is the prelude's
+`trace`. So the Python `ember` is no longer a capability fr lacks — only a more mature UI
+(RETURN frames, dictionary, autoplay).
 
 ## Verifying it: anvil.fr (self-hosted)
 
@@ -254,11 +250,6 @@ new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checki
 - [x] **Robust input + file loading** (kernel) — `_word` reassembles tokens (and the
       comment words refill) across reads, so input can arrive in any chunk size; and
       `./fr a.fr b.fr` loads source files from `argv` before the stdin REPL.
-- [x] **ember.fr** — the **self-hosted ember**: an interactive visual stepper written
-      in fr, run with no Python (`./fr prelude.fr term.fr ember.fr`). It **steps into
-      colon words** (`call`/`code`/`data` view), **follows control flow** (if/else +
-      loops), and has a **live edit line** (`e` — type `3 square` to re-target in place).
-      fr now writes, verifies, forges, *and watches* its own code.
 - [x] **ptrace.fr** — process control + **ptrace** *in fr*: `fork`, `PTRACE_TRACEME`,
       `SINGLESTEP`, `GETREGS`, `PEEKDATA` — all just `syscall6` shuffles. ptrace was never
       special, just a 4-arg syscall `syscall3` couldn't reach. Its `watch` is a **self-hosted
@@ -266,10 +257,9 @@ new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checki
       dictionary *is* the child's), run a word in the child, single-step it from the parent,
       and decode `%rax` at each `jmp *(%rax)` dispatch. `5 ' square watch` →
       `… execute square dup * ; bye` — the real engine traced, observed entirely from fr.
-      So the debugger backend that "stayed in Python" now runs in fr too.
-- [x] **live.fr** — `ember`'s exact `call`/`code`/`data` view, **on the live ptrace backend**:
-      the TUI drives the *real* engine (via `ptrace.fr`). It tracks the live call nesting from
-      the dispatch stream (`call` shows `cube > square`, `code` is the current word's body with
-      the live cell highlit) and reads the data stack with `PEEKDATA` (`data` steps `5 → 5 5 →
-      25`). The Python `ember` is now only the *more mature* UI (Nord curses, dictionary panel)
-      — every capability it had, fr now has too.
+- [x] **ember.fr** — the **self-hosted explorer**: `ember`'s `call`/`code`/`data` dashboard
+      driving the *real* engine via `ptrace.fr`. `5 ' square ember` (or `./ember-fr`) forks a
+      child, single-steps it, infers the call path from the dispatch stream, and reads the
+      data stack with `PEEKDATA` (`5 → 5 5 → 25`). `r` runs, `e` is a live edit line (re-fork
+      on a new target). No Python — the terminal is the tty. fr now writes, verifies, forges,
+      *and watches its own engine run*; the Python `ember` is just a more mature UI now.

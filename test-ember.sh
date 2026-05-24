@@ -17,49 +17,25 @@ check() {
 printf 'building... '
 if ./build.sh >/dev/null 2>&1; then printf 'ok\n\n'; else echo "BUILD FAILED"; exit 1; fi
 
-# --- ember.fr internals (fast: drive the render/step words through a pipe) -----
-# These need no tty, so they don't pay the pty cost — they poke ember.fr's logic
-# directly: `<args> ' <word> einit` sets up the stepper, then `estep`/`erun` run it.
-LT="cat prelude.fr term.fr ember.fr"
-A=": abs dup 0< if negate then ;"
-S=": sign dup 0< if drop -1 else drop 1 then ;"
-CD=": cd begin 1- dup 0= until ;"
-CUBE=": cube dup square * ;"
-
-check "ember.fr: frame has title"    "$( ( $LT; echo "5 ' square einit draw" ) | ./fr )"                 "ember: square"
-check "ember.fr: highlights cursor"  "$( ( $LT; echo "5 ' square einit draw" ) | ./fr )"                 "235;203;139"
-check "ember.fr: estep runs a word"  "$( ( $LT; echo "5 ' square einit estep .s" ) | ./fr )"             "5 5"
-check "ember.fr: estep pushes lit"   "$( ( $LT; echo ": addk 10 + ; 5 ' addk einit estep .s" ) | ./fr )" "5 10"
-check "ember.fr: erun reaches EXIT"  "$( ( $LT; echo "5 ' square einit erun edone @ ." ) | ./fr )"        "-1"
-check "ember.fr: thread shows branch" "$( ( $LT; echo "$A ' abs einit draw-thread" ) | ./fr )"            "0b"
-# control flow: estep follows branches AND steps into colon words. Results, not
-# step counts, are the proof (descent changes how many cells a word takes).
-check "ember.fr: 0branch falls thru (abs -5)" "$( ( $LT; echo "$A -5 ' abs einit erun .s" ) | ./fr )"     "5"
-check "ember.fr: 0branch jumps (abs 5)"       "$( ( $LT; echo "$A  5 ' abs einit erun .s" ) | ./fr )"     "5"
-check "ember.fr: if/else if-arm (sign -5)"    "$( ( $LT; echo "$S -5 ' sign einit erun .s" ) | ./fr )"    "-1"
-check "ember.fr: if/else else-arm (sign 5)"   "$( ( $LT; echo "$S  5 ' sign einit erun 2 + ." ) | ./fr )" "3"
-check "ember.fr: backward branch (loop)"      "$( ( $LT; echo "$CD 3 ' cd einit erun .s" ) | ./fr )"      "0"
-# stepping INTO colon words (the call-tree walk, like the Python ember):
-check "ember.fr: steps into colon"  "$( ( $LT; echo "$CUBE 3 ' cube einit estep estep ecur @ .cfaname" ) | ./fr )" "square"
-check "ember.fr: call-path depth"   "$( ( $LT; echo "$CUBE 3 ' cube einit estep estep cn @ ." ) | ./fr )"          "1"
-check "ember.fr: nested run (cube 3)" "$( ( $LT; echo "$CUBE 3 ' cube einit erun .s" ) | ./fr )"                   "27"
-
-# ptrace from fr: fork a child, PTRACE_TRACEME + SINGLESTEP it, confirm RIP advanced.
-# This is the groundwork for self-hosting ember's debugger backend (no Python).
+# --- ptrace.fr: process control + driving the real engine (pipe-testable) ------
+# fork a child, PTRACE_TRACEME + SINGLESTEP it, confirm RIP advanced.
 check "ptrace.fr: fr single-steps a child" "$( ( cat prelude.fr ptrace.fr; echo trace-demo ) | ./fr )" "MOVED"
-# watch: fr drives the REAL fr engine under ptrace and decodes the live dispatch —
-# the self-hosted NativeVM. Tracing `5 square` must show square's body executing.
+# watch: fr drives the REAL fr engine under ptrace and decodes the live dispatch.
 check "ptrace.fr: watch traces real engine" "$( ( cat prelude.fr ptrace.fr; echo "5 ' square watch" ) | ./fr )" "square dup *"
-# live.fr: the visual stepper on the live backend. live-trace peeks the child's REAL
-# data stack at each dispatch — tracing 5 square must show it pass through 5 5 (after dup).
-check "live.fr: peeks the real data stack" "$( ( cat prelude.fr term.fr ptrace.fr live.fr; echo "5 ' square live-trace" ) | ./fr )" "5 5"
 
-# --- end-to-end backends (slower: a pty and a ptraced process) -----------------
-check "live.fr: visual TUI on real engine" "$(timeout 30 ./ember-fr --live-selftest)"               "EMBER-FR LIVE PASS"
-check "ember.fr: pty stepper 5->25"  "$(timeout 30 ./ember-fr --selftest)"        "EMBER-FR PASS"
-check "ember.fr: live edit re-targets" "$(timeout 30 ./ember-fr --edit-selftest)" "EMBER-FR EDIT PASS"
-check "ember: Python model"          "$(./ember --selftest)"                      "ALL PASS"
-check "ember: native ptrace backend" "$(timeout 60 ./ember --native-selftest)"    "NATIVE PASS"
+# --- ember.fr: the visual explorer on the live ptrace backend ------------------
+# ember-trace is the non-interactive core: it peeks the child's REAL data stack at
+# each dispatch (no tty needed), so it exercises the engine + branch/call following.
+LT="cat prelude.fr term.fr ptrace.fr ember.fr"
+check "ember.fr: live stack (5 square -> 5 5)"  "$( ( $LT; echo "5 ' square ember-trace" ) | ./fr )"  "5 5"
+check "ember.fr: follows if/then (abs -5)"      "$( ( $LT; echo ": abs dup 0< if negate then ;  -5 ' abs ember-trace" ) | ./fr )"  "negate"
+check "ember.fr: steps into colon (cube 3)"     "$( ( $LT; echo ": cube dup square * ;  3 ' cube ember-trace" ) | ./fr )"  "27"
+
+# --- end-to-end TUIs (slower: a pty and a ptraced process) ---------------------
+check "ember.fr: pty stepper 5->25"     "$(timeout 30 ./ember-pty --selftest)"       "EMBER PASS"
+check "ember.fr: live edit re-targets"  "$(timeout 30 ./ember-pty --edit-selftest)"  "EMBER EDIT PASS"
+check "ember (python): model"           "$(./ember --selftest)"                      "ALL PASS"
+check "ember (python): native ptrace"   "$(timeout 60 ./ember --native-selftest)"    "NATIVE PASS"
 
 echo
 if [ "$fail" -eq 0 ]; then printf '\033[32mALL EMBER CHECKS PASSED\033[0m\n'; else printf '\033[31mSOME EMBER CHECKS FAILED\033[0m\n'; fi

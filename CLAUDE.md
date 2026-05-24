@@ -43,33 +43,22 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the
   termios raw/cbreak mode via `ioctl` (`raw-on`/`raw-off`
   clear `ICANON|ECHO`; `term-size` reads `TIOCGWINSZ`). With `key` + `see` + `trace`,
   this is the full substrate for an interactive ember in fr.
-- **`ember.fr`** — the **self-hosted ember**: an interactive visual single-stepper written
-  in fr (the fr-native analog of the Python `ember`). `<args> ' <word> ember` steps the
-  word's threaded body cell by cell on the live data stack, drawing a `code`/`data` panel
-  with the current cell highlighted (built on `term.fr` + `see`/`trace`). Panels: `call`
-  (the call path), `code` (current word's body), `data` (live stack). `space`/`s` step,
-  `r` runs to the end, `q`/`Esc` quit. It **follows control flow** (`0branch` pops the live
-  flag, `branch` moves the cursor) AND **steps into colon words** — `estep` descends through
-  `docol`/`EXIT` tracking its own call stack (`rstk`/`cstk`), so the `code` panel switches to
-  the callee and `call` shows `cube > square` (primitives stay atomic). `r` runs to the end;
-  **`e` is a live edit line** — reads a Forth line and re-targets in place (numbers push,
-  words run as setup, last word is stepped: `3 square`, `2 3 + square`; an unknown or
-  non-colon target flashes `<word> ?` and leaves the stepping intact), no restart. Run it with
-  **no Python**: `./fr prelude.fr term.fr ember.fr`, then type `5 ' square ember` (the kernel
-  loads files from `argv`, then the tty is the REPL so `raw-on` works). `./ember-fr` is a pty
-  wrapper for scripted testing + pre-typing the command. ember.fr *simulates* the engine.
 - **`ptrace.fr`** — process control + ptrace in fr (on `syscall6`): `fork`/`wait4`/`traceme`/
   `ssstep`/`getregs`/`peekdata`. `watch` drives the *real* fr engine: fork (child shares the
   memory image, so the parent's dictionary decodes the child's CFAs), single-step to each
   `jmp *(%rax)` boundary, name `%rax`. `5 ' square watch` → `… execute square dup * ; bye`.
-- **`live.fr`** — `ember.fr`'s exact `call`/`code`/`data` view on the **live ptrace backend**
-  (`ptrace.fr` + `term.fr`): the visual stepper drives the *real* engine. It tracks the live
-  call nesting by detecting `docol`-entries/`EXIT`s in the dispatch stream (so `call` shows
-  `cube > square` and `code` is the current word's body with the live cell highlighted), and
-  reads the data stack with `peekdata` out of the child (`data` steps `5 → 5 5 → 25`). Run
-  `./fr prelude.fr term.fr ptrace.fr live.fr` then `5 ' square live` (or `./ember-fr --live`).
-  So the Python `ember`'s NativeVM backend is now self-hosted too; the Python explorer remains
-  only as the more *mature* UI (Nord curses, dictionary panel), not a capability fr lacks.
+- **`ember.fr`** — the **self-hosted explorer**: a visual stepper driving the *real* fr engine
+  under ptrace (built on `ptrace.fr` + `term.fr`). `<args> ' <word> ember` forks a child that
+  runs the word, then single-steps it to each `jmp *(%rax)` boundary, reading the child's real
+  registers and data stack (`peekdata`). A Nord-coloured bordered dashboard: `call` (live call
+  path `cube > square`, inferred from `docol`-entries/`EXIT`s), `code` (current word's body,
+  live cell highlighted), `data` (the real stack `5 → 5 5 → 25`). Keys: `space`/`s` step, `r`
+  run to end, `e` edit (re-fork on a new target: `3 square`, `2 3 + square`; unknown/non-colon
+  flashes `<word> ?`), `q`/`Esc` quit. Run with **no Python**: `./fr prelude.fr term.fr ptrace.fr
+  ember.fr`, then type `5 ' square ember` (or the one-line `./ember-fr` shell launcher — the
+  terminal *is* the tty `raw-on` needs). `ember-trace` is its non-interactive core (prints the
+  live stack per dispatch). The lighter, no-ptrace text stepper is the prelude's `trace`. The
+  Python `ember` stays only as a more *mature* UI (curses chrome), not a capability fr lacks.
 - **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted), built on the
   prelude. `check{ … }`
   infers a phrase's `( in -- out )` by abstract stack simulation; `def name ( decl ) body ;`
@@ -87,13 +76,13 @@ explorer, in Python and now self-hosted) · **anvil** (the verifier) · **forge*
 
 **File conventions.** Forth source uses the `.fr` extension (the kernel `fr.s` is GNU
 assembler). The project's direction is to **self-host its tooling in fr**, keeping the whole
-trust base small/auditable — `anvil.fr`, `forge.fr`, `term.fr`, `ember.fr`, `ptrace.fr`, and
-`live.fr` are all self-hosted, and with `syscall6` even the ptrace debugger backend is now in
-fr (`live.fr`). The Python `ember` remains only as the *more mature* explorer UI (Nord curses,
-dictionary panel), not a capability fr lacks. The `anvil-reference.py`/`forge-reference.py`
-*reference specs* track intended behavior and **must be kept in sync as those tools gain
-features**. The fr TUIs run with no Python (`./fr prelude.fr term.fr ember.fr`); `ember-fr` is
-a pty wrapper for scripted testing + pre-typing the command.
+trust base small/auditable — `anvil.fr`, `forge.fr`, `term.fr`, `ptrace.fr`, and `ember.fr`
+are all self-hosted; with `syscall6`, even ember's ptrace debugger backend is now in fr.
+The Python `ember` remains only as the *more mature* explorer UI (Nord curses, dictionary
+panel), not a capability fr lacks. The `anvil-reference.py`/`forge-reference.py` *reference
+specs* track intended behavior and **must be kept in sync as those tools gain features**. The
+fr explorer runs with no Python (`./fr prelude.fr term.fr ptrace.fr ember.fr`, or the one-line
+shell `./ember-fr`); `ember-pty` is a Python harness only for *scripted* (paced) testing.
 
 ## Commands
 
@@ -108,20 +97,18 @@ echo '3 4 + 5 * .' | ./fr  # fr is a REPL: reads Forth from stdin until EOF
 ./ember --selftest         # headless check of the Python model  (the "test suite")
 ./ember --native-selftest  # headless check that drives ./fr under ptrace
 
-./fr prelude.fr term.fr ember.fr     # the SELF-HOSTED stepper (simulates), no Python
-./fr prelude.fr term.fr ptrace.fr live.fr   # the SELF-HOSTED stepper on the LIVE ptrace backend
-./ember-fr "5 ' square ember"   # ember.fr via a pty wrapper that pre-types the command
-./ember-fr --live "5 ' square live"  # live.fr (real engine under ptrace) via the pty wrapper
-./ember-fr --selftest           # headless pty check of ember.fr; --live-selftest for live.fr
+./fr prelude.fr term.fr ptrace.fr ember.fr   # the SELF-HOSTED explorer (then type: 5 ' square ember)
+./ember-fr                      # same, as a one-line shell launcher (no Python)
+./ember-pty --selftest          # headless pty test of ember.fr; also --edit-selftest
 ./test.sh                       # core suite: kernel/prelude/anvil/forge/term + reference specs
-./test-ember.sh                 # the explorer's own suite (ember model, ptrace, ember.fr/pty)
+./test-ember.sh                 # the explorer's own suite (ptrace, ember.fr, Python ember)
 ./test.sh --all                 # both suites
 ```
 
 There is no test framework; `./test.sh` is the one-command answer for the **core**
 (kernel/prelude/anvil/forge/term + the Python reference specs — expect `ALL CHECKS PASSED`,
-~0.25s). The explorer has its own, costlier suite, **`./test-ember.sh`** (the Python model,
-the ptrace backend, ember.fr under a pty, plus fast pipe-driven ember.fr render/step checks);
+~0.25s). The explorer has its own, costlier suite, **`./test-ember.sh`** (ptrace.fr, ember.fr
+via `ember-trace` (pipe) and `ember-pty` (a paced pty), and the Python `ember`);
 `./test.sh --all` runs both. The `--selftest` modes are the individual assertions these call.
 The native ember backend reads `fr`'s ELF symbol table, so **keep the binary unstripped**
 (`build.sh` already does).
@@ -166,7 +153,7 @@ chunk size (a pipe, a pty, a 1-byte dribble) without splitting. `_refill` reads 
 which `_next_source` walks through the `argv` files (`argv[1..]`) and then stdin: so
 `./fr a.fr b.fr` loads those files in order and then drops to the stdin REPL (a missing file is
 skipped). `argc`/`argv` are captured in `_start` before `%rsp` becomes the data stack. This is
-what lets the self-hosted ember run with no launcher: `./fr prelude.fr term.fr ember.fr`.
+what lets the self-hosted explorer run with no launcher: `./fr prelude.fr term.fr ptrace.fr ember.fr`.
 **Gotcha when scripting:** `_refill`'s read uses `%rsi` (saved/restored), and `syscall` clobbers
 `%rcx` — the mid-token refill in `_word` therefore `push`/`pop`s `%rcx` (the live token length).
 

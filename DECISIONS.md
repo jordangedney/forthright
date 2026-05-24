@@ -72,8 +72,8 @@ it correct.
 `argv` file (`O_RDONLY`), then finally stdin (once), then signals true EOF. `argc`/`argv`
 are grabbed in `_start` before `%rsp` is repurposed as the data stack; a missing file is
 skipped (open returns negative → try the next). **Why:** this is what lets the
-self-hosted ember run with **no launcher** — `./fr prelude.fr term.fr ember.fr` loads the
-library from disk and leaves fd 0 as the real tty, which `raw-on`/`key` need. It also
+self-hosted explorer run with **no launcher** — `./fr prelude.fr term.fr ptrace.fr ember.fr`
+loads the library from disk and leaves fd 0 as the real tty, which `raw-on`/`key` need. It also
 retires the `cat a.fr b.fr | ./fr` idiom (though that still works). Capped at "files then
 stdin" deliberately — no `include`-from-source, no search path; just enough to bootstrap.
 
@@ -110,38 +110,32 @@ ANSI escapes through a pipe; raw
 mode is validated once under a pty (a byte with no newline echoes immediately and
 exactly once → `ICANON` and `ECHO` are both off), since `ioctl` needs a real tty.
 
-### the explorer is fully self-hosted now (`ember.fr` simulates, `live.fr` ptraces)
-`ember.fr` is now a real interactive stepper *in fr* — `see`/`trace` for the model,
-`key`/`raw-on` for input, `term.fr` for output. It has parity with the Python ember's
-*core*: `estep` **follows control flow** (reads a `0branch`'s flag off the stack, moves
-the cursor — it can't `execute` a branch without clobbering its own IP) and **steps into
-colon words** (descends through `docol`/`EXIT` on its own `rstk`/`cstk` call stack, so the
-`code` panel follows the callee and `call` shows the path; primitives stay atomic). It is
-still a *subset*: it walks threaded cells, not raw machine instructions, and lacks the
-richer curses chrome. **On the ptrace backend** (the one piece this doc long called
-"out of fr's reach"): that claim died with `syscall3`. `ptrace`/`fork`/`wait4` are just
-syscalls, so `ptrace.fr`'s `watch` is a working **self-hosted NativeVM** — it forks the
-running fr (the child shares its memory image, so the parent's dictionary *is* the
-child's), runs a word in the child, single-steps it from the parent, and decodes `%rax`
-at each `jmp *(%rax)` dispatch into the word being run. **`live.fr`** then wraps that in a
-term.fr TUI — `ember`'s visual stepper driving the *real* engine, reading the live data
-stack with `peekdata` (`5 ' square live` shows it step `5 → 5 5 → 25`). So fr now matches
-the Python ember's full capability, ptrace backend included; the Python explorer stays only
-as the *more mature UI* (Nord curses, dictionary), not from necessity. **A subtlety that
-made this simple:** forking instead of `execve`ing means no ELF/argv work and a shared
-dictionary — the parent decodes the child's CFAs and finds the stack base (`sp0`) for free.
+### one explorer (`ember.fr`), driving the real engine; the simulator was dropped
+The ptrace backend was the one piece this doc long called "out of fr's reach" — a claim
+that died with `syscall3`. `ptrace`/`fork`/`wait4` are just syscalls, so `ptrace.fr`'s
+`watch` is a working **self-hosted NativeVM**: it forks the running fr (the child shares
+its memory image, so the parent's dictionary *is* the child's), runs a word in the child,
+single-steps it from the parent, and decodes `%rax` at each `jmp *(%rax)` dispatch.
+**`ember.fr`** wraps that in a `term.fr` dashboard — `call`/`code`/`data`, with the live
+call path inferred from `docol`-entries/`EXIT`s and the data stack read via `peekdata`.
+**Why only one explorer now:** there was briefly a second, `ember.fr`-as-*simulator* (it
+walked the threaded code itself, from before fr could ptrace). Once the real-engine version
+existed, the simulator was redundant *and* less truthful (a model can drift), so it was
+deleted; the prelude's `trace` already fills the lightweight no-ptrace "model" niche.
+**A subtlety that made the real backend simple:** forking instead of `execve`ing means no
+ELF/argv work and a shared dictionary — the parent decodes the child's CFAs and finds the
+stack base (`sp0`) for free. The Python `ember` stays only as a *more mature UI* (curses).
 
-### ember.fr runs with no launcher; `ember-fr` is just a pty wrapper, and `q` exits fr
-`raw-on` does an `ioctl` on fd 0, which fails on a pipe — so `ember.fr` needs a real
-tty. Now that the kernel loads source from `argv`, the canonical way to run it needs
-**no Python**: `./fr prelude.fr term.fr ember.fr` loads the library from disk and leaves
-fd 0 as the terminal. (Earlier this decision deferred argv-loading and leaned on a pty
-launcher feeding the library through the pipe — which was *flaky*, ~15% of runs split a
-token at a pty-buffer boundary; argv-loading fixed both the launch and the flakiness.)
-`ember-fr` remains as a thin pty wrapper for **scripted testing** (`--selftest`) and the
-convenience of pre-typing the command. **Why `q` calls `bye`:** the stepper is a
-single-shot view (like `htop`), so quitting it quits fr and the wrapper sees a clean EOF.
-**Spelled-out labels** (`code` `data` `done` via per-char `emit`) are a stopgap until fr
+### `ember.fr` runs with no launcher; `ember-fr` is a one-line shell exec
+`raw-on` does an `ioctl` on fd 0, which fails on a pipe — so `ember.fr` needs a real tty.
+But for *interactive* use the **terminal already is that tty**, and the kernel loads the
+library from `argv`, so launching is just `./fr prelude.fr term.fr ptrace.fr ember.fr` —
+no Python (`ember-fr` is exactly that one-line `exec`). The Python that *was* `ember-fr`
+only existed to pace scripted keystrokes through a pty (a pipe can't — fr's first read
+would swallow them); that's purely a *test* concern, now isolated in `ember-pty`. **Why
+`q` calls `bye`:** the explorer is a single-shot view (like `htop`), so quitting it quits
+fr cleanly. (Re-targeting via the `e` edit line kills the child and forks a fresh one.)
+**Spelled-out labels** (`call` `code` `data` via per-char `emit`) are a stopgap until fr
 has string literals (`s"`).
 
 ### ember runs fr at native speed via a breakpoint, single-steps only for `s`

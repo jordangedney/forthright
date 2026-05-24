@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""ember-pty — headless test harness for the self-hosted explorer (ember.fr).
+
+Interactive launching needs no Python (`ember-fr` is a one-line shell exec). But
+*scripted* testing does: you must give fr a real tty (so `raw-on` engages) and pace
+keystrokes — send the command, wait for the engine to draw and block in `key`, then
+feed one key at a time. A plain pipe can't pace (fr's first read would swallow the
+keystrokes), so this drives ember.fr under a pty.
+
+    ./ember-pty --selftest        step `5 square`; assert the live stack reaches 25
+    ./ember-pty --edit-selftest   re-target to `3 square` via the edit line; assert 9
+"""
+import os, sys, pty, select, struct, termios, time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+FILES = ("prelude.fr", "term.fr", "ptrace.fr", "ember.fr")
+
+
+def spawn(cmd, rows=24, cols=80):
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.chdir(HERE)
+        os.execv("./fr", ["./fr", *FILES])
+        os._exit(127)
+    try:
+        fcntl_TIOCSWINSZ = termios.TIOCSWINSZ
+        import fcntl
+        fcntl.ioctl(fd, fcntl_TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+    except Exception:
+        pass
+    try:
+        a = termios.tcgetattr(fd)
+        a[3] &= ~(termios.ICANON | termios.ECHO)
+        termios.tcsetattr(fd, termios.TCSANOW, a)
+    except termios.error:
+        pass
+    os.write(fd, (cmd + "\n").encode())            # fr reads this after loading the files
+    return pid, fd
+
+
+def read_until(fd, needle, timeout=3.0):
+    out = b""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        r, _, _ = select.select([fd], [], [], deadline - time.time())
+        if not r:
+            break
+        try:
+            chunk = os.read(fd, 65536)
+        except OSError:
+            break
+        if not chunk:
+            break
+        out += chunk
+        if needle in out:
+            break
+    return out
+
+
+def drain(fd, timeout=0.3):
+    out = b""
+    while True:
+        r, _, _ = select.select([fd], [], [], timeout)
+        if not r:
+            break
+        try:
+            chunk = os.read(fd, 65536)
+        except OSError:
+            break
+        if not chunk:
+            break
+        out += chunk
+    return out
+
+
+def finish(pid, fd):
+    try:
+        os.close(fd)
+        os.waitpid(pid, 0)
+    except OSError:
+        pass
+
+
+def selftest():
+    """Step `5 square` on the real engine; the live stack must reach 25, then exit."""
+    pid, fd = spawn("5 ' square ember")
+    frames = read_until(fd, b"q=quit")
+    for _ in range(12):
+        os.write(fd, b"s")
+        frames += read_until(fd, b"q=quit", 2.0)
+        if b"exited" in frames:
+            break
+    os.write(fd, b"q")
+    frames += drain(fd)
+    finish(pid, fd)
+    checks = [("dup", b"dup" in frames), ("25", b"25" in frames), ("exited", b"exited" in frames)]
+    ok = all(c[1] for c in checks)
+    print("EMBER PASS" if ok else "EMBER FAIL (missing: " +
+          " ".join(n for n, h in checks if not h) + ")")
+    return 0 if ok else 1
+
+
+def edit_selftest():
+    """Re-target square(5) to square(3) via the edit line; running it must reach 9."""
+    pid, fd = spawn("5 ' square ember")
+    read_until(fd, b"q=quit")
+    os.write(fd, b"e")
+    time.sleep(0.2)
+    os.write(fd, b"3 square\r")
+    frames = read_until(fd, b"q=quit", 2.0)
+    os.write(fd, b"r")
+    frames += read_until(fd, b"q=quit", 2.0)
+    os.write(fd, b"q")
+    frames += drain(fd)
+    finish(pid, fd)
+    ok = (b"9" in frames) and (b"square" in frames)
+    print("EMBER EDIT PASS" if ok else "EMBER EDIT FAIL")
+    return 0 if ok else 1
+
+
+def main():
+    a = sys.argv[1:]
+    if a and a[0] == "--edit-selftest":
+        sys.exit(edit_selftest())
+    sys.exit(selftest())
+
+
+if __name__ == "__main__":
+    main()

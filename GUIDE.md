@@ -26,10 +26,10 @@ and **forges** its own verified code.
 | `forge.fr` | generate→check→repair loop, written *in fr* (synthesizes verified words) |
 | `term.fr` | terminal control *in fr*: ANSI escapes + termios raw mode (the TUI substrate) |
 | `ember` | a Python/curses TUI that `ptrace`s the real `fr` and animates it |
-| `ember.fr` | the **self-hosted** ember: an interactive stepper *in fr* (`./fr prelude.fr term.fr ember.fr`) |
-| `ember-fr` | a pty wrapper around that, for scripted testing + pre-typing the command |
 | `ptrace.fr` | ptrace *in fr* (`syscall6`); `watch` drives the real engine — a self-hosted NativeVM |
-| `live.fr` | the visual stepper *on the live ptrace backend* — `ember`'s TUI driving the real engine |
+| `ember.fr` | the **self-hosted explorer**: a visual stepper driving the *real* engine via ptrace |
+| `ember-fr` | one-line shell launcher (`exec ./fr prelude.fr term.fr ptrace.fr ember.fr`) |
+| `ember-pty` | Python harness for *scripted* (paced) pty testing of `ember.fr` |
 | `build.sh` | `as` + `ld` → `fr` |
 | `anvil-reference.py`, `forge-reference.py` | Python specs for the fr versions |
 
@@ -54,7 +54,7 @@ echo '5 square .' | ./fr prelude.fr      # load prelude (file), run a command (s
 ( cat prelude.fr; echo ': abs dup 0 < if negate then ;  -7 abs .' ) | ./fr   # -> 7
 ( cat prelude.fr anvil.fr; echo 'def sq ( n -- n ) dup * ;' ) | ./fr          # anvil: sq ok
 ( cat prelude.fr anvil.fr forge.fr; echo forge ) | ./fr                       # synthesize
-./fr prelude.fr term.fr ember.fr         # the self-hosted TUI (then type: 5 ' square ember)
+./fr prelude.fr term.fr ptrace.fr ember.fr   # the self-hosted explorer (then type: 5 ' square ember)
 ./ember                                  # the Python ptrace TUI (loads the prelude itself)
 ```
 
@@ -244,8 +244,8 @@ The generator stands in for an AI; the point is that nothing is accepted unless
 **One command: `./test.sh`** — builds and runs the core checks (kernel, prelude,
 anvil, forge, term, reference specs), printing PASS/FAIL (exit non-zero on any
 failure). The explorer is costlier to test, so it has its own suite, **`./test-ember.sh`**
-(the Python model, the ptrace backend, ember.fr under a pty, plus fast render/step
-checks); `./test.sh --all` runs both. Run these first; the individual commands below
+(ptrace.fr, ember.fr via `ember-trace`/`ember-pty`, and the Python `ember`); `./test.sh
+--all` runs both. Run these first; the individual commands below
 are for looking closely at one. (`DECISIONS.md` records *why* the design is the way it
 is — read it before changing something that looks odd.)
 
@@ -291,15 +291,14 @@ done for `/` and `mod`).
 
 Built and working, all self-hosted where it counts: the kernel, the prelude (with a
 self-hosted disassembler `see` and tracer `trace`), the verifier `anvil`, the
-synthesis loop `forge`, the terminal layer `term.fr`, and `ember.fr` — an interactive
-visual stepper written in fr that *steps into colon words* (a `call`/`code`/`data` view,
-like the Python ember) and *follows control flow* (if/else and loops). Run it with no
-Python: `./fr prelude.fr term.fr ember.fr`, then type `5 ' square ember`. fr writes,
-verifies, forges, and *watches* its own code — and with `syscall6` it now **ptraces** too:
-`ptrace.fr` forks and single-steps a child, and **`live.fr` is the visual stepper driving
-the *real* engine** (reading the live data stack with `PEEKDATA`). So everything the Python
-`ember` could do, fr now does; the Python one stays only as the more mature UI (Nord curses,
-dictionary panel), not a capability fr lacks.
+synthesis loop `forge`, the terminal layer `term.fr`, `ptrace.fr` (process control via
+`syscall6`), and `ember.fr` — a visual stepper that drives the **real** fr engine under
+ptrace: it forks a child, single-steps it, and shows the live `call`/`code`/`data` with
+the data stack read straight out of the process (`PEEKDATA`). Run it with no Python:
+`./fr prelude.fr term.fr ptrace.fr ember.fr`, then type `5 ' square ember`. fr writes,
+verifies, forges, and *watches its own engine run*. So everything the Python `ember` could
+do, fr now does; the Python one stays only as the more mature UI (Nord curses, dictionary
+panel), not a capability fr lacks.
 
 Open directions if continuing: more `forge` targets / a smarter generator; pushing
 `s=`/`find`/`number` into the prelude for an even smaller kernel; allowing control flow
