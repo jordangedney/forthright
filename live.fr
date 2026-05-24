@@ -101,6 +101,7 @@ variable ldp
   then ;
 
 \ --- the interactive TUI (the same call/code/data view as ember.fr, live) --------
+58 constant LBW   8 constant LBH               \ the dashboard box: width, height
 variable lquit
 : .live  ( -- ) [char] l emit [char] i emit [char] v emit [char] e emit ;
 : .real  ( -- ) [char] r emit [char] e emit [char] a emit [char] l emit space
@@ -113,13 +114,14 @@ variable lquit
 : .keys  ( -- ) [char] s emit [char] p emit [char] a emit [char] c emit [char] e emit
                 [char] = emit [char] s emit [char] t emit [char] e emit [char] p emit space space
                 [char] q emit [char] = emit [char] q emit [char] u emit [char] i emit [char] t emit ;
-: draw-live ( -- )                \ repaint in place — no full-screen wipe, no flicker
-  1 2 atclr  nord-cyan bold  .live  reset  space space  nord-dim [char] # emit  lsteps @ .n
-             space space  .real reset
-  3 2 atclr  nord-dim .call reset  3 9 at  draw-call
-  5 2 atclr  nord-dim .code reset  5 9 at  alive @ if  draw-code  then
-  7 2 atclr  nord-dim .data reset  7 9 at  alive @ if  nord-orange .lstack reset  else  nord-dim .ended reset  then
-  9 2 atclr  nord-dim .keys reset ;
+: draw-live ( -- )                \ a bordered dashboard, redrawn in place each frame
+  1 1 LBW LBH box
+  1 3 at  nord-cyan bold  .live  reset  space space  nord-dim [char] # emit  lsteps @ .n
+          space space  .real reset
+  3 3 at  nord-dim .call reset  3 9 at  draw-call
+  4 3 at  nord-dim .code reset  4 9 at  alive @ if  draw-code  then
+  5 3 at  nord-dim .data reset  5 9 at  alive @ if  nord-orange .lstack reset  else  nord-dim .ended reset  then
+  7 3 at  nord-dim .keys reset ;
 : live ( n cfa -- )                  \ usage:  <args> ' <word> live
   fork dup 0= if
     drop  traceme  getpid SIGSTOP kill  execute  bye

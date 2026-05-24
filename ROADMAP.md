@@ -95,11 +95,13 @@ assembly is a throwaway bootstrap.
     `docol`-entries/`EXIT`s in the dispatch stream (`call` shows `cube > square`, `code` is the
     current word's body with the live cell highlit), and reads the data stack with `peekdata`.
     So the Python `ember` is now capability-redundant; what it still has is *polish*, not power:
-  - **Polish toward the Python look.** A dictionary panel is the main one left. (DONE: the
-    **Nord palette** — `term.fr` has `fg24`/`nord-*` true-colour words and both explorers use
-    them; a **live edit line** in `ember.fr` (`e`); flicker-free `atclr` redraw. Extending the
-    edit line to `live.fr` needs re-forking a child per target; coalescing the per-byte writes
-    into one `type`/frame is an optional perf tweak.)
+  - **Polish toward the Python look — mostly DONE.** The **Nord palette** (`term.fr` `fg24`/
+    `nord-*`), a **boxed dashboard layout** (`term.fr` `box`; both explorers are now bordered
+    panels with a titled header), a **live edit line** in `ember.fr` (`e`), and flicker-free
+    in-place redraw. (A dictionary panel was tried and dropped — "most recent words" just shows
+    the explorer's own plumbing; it'd need a way to show only the user's vocabulary.) Left:
+    extending the edit line to `live.fr` (re-fork a child per target); an OUTPUT panel (capture
+    what a stepped word prints); coalescing per-byte writes into one `type`/frame (perf).
   - **Buffer redraws.** `term.fr` emits one `write(2)` per byte; a frame is many tiny
     syscalls (flicker). Render into a string buffer and `type` it once. Wants `s"`-style
     string building (or just a scratch buffer + `c!` cursor) — a good prelude addition.

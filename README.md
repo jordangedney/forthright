@@ -127,8 +127,9 @@ word's body; `exit` pops back. The Python engine is a deliberate superset of fr
 
 `ember.fr` is the same idea, **written in fr**: an interactive visual stepper that
 walks a word's threaded body on the live data stack, one cell per keypress, with the
-current cell highlighted and a live `data` panel — Nord-coloured (`term.fr` has
-true-colour `fg24`/`nord-*` words), matching the Python ember's look. It's built entirely on fr — `see`/
+current cell highlighted and a live `data` panel — a Nord-coloured, bordered dashboard
+(`term.fr` has true-colour `fg24`/`nord-*` words + `box` drawing), matching the Python
+ember's look. It's built entirely on fr — `see`/
 `trace` for the model, `key`/`raw-on` (`ioctl` via the kernel's `syscall6`) for input,
 `term.fr` for ANSI output. It runs with **no Python at all**: the kernel loads the
 library from its file arguments, then the terminal is the REPL (so `raw-on` has a real
@@ -138,10 +139,14 @@ tty). Type a stepping command at the prompt:
     #   (or define your own first:  : cube dup square * ;   then  3 ' cube ember)
 
 ```
- ember: cube  #2            space=step  r=run  q=quit
- call   cube > square       (stepped INTO square)
- code   dup * ;             (square's body, current cell highlit)
- data   3 3
+┌──────────────────────────────────────────────────────┐
+│  ember: cube  #2                                       │   (stepped INTO square)
+│  call  cube > square                                   │
+│  code  dup * ;                                         │   (square's body, cursor highlit)
+│  data  3 3                                             │
+│                                                        │
+│  space=step  r=run  e=edit  q=quit                     │
+└──────────────────────────────────────────────────────┘
 ```
 
 It **steps into colon words** — descending through `docol`/`EXIT` while tracking its

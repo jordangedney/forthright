@@ -48,6 +48,26 @@
 : nord-dim    ( -- )   97 110 136 fg24 ;   \ #616E88 muted   — panel labels
 : nord-fg     ( -- )  216 222 233 fg24 ;   \ #D8DEE9 snow    — normal text
 
+\ Box drawing (UTF-8 line glyphs). `emit` writes one byte, so a 3-byte glyph is
+\ three emits; `u8` does that. `box` draws a bordered rectangle with a blanked
+\ interior — redraw it each frame (no full-screen wipe) and write content on top.
+: u8 ( b1 b2 b3 -- )  rot emit  swap emit  emit ;
+: box-tl ( -- )  226 148 140 u8 ;   : box-tr ( -- )  226 148 144 u8 ;   \ ┌ ┐
+: box-bl ( -- )  226 148 148 u8 ;   : box-br ( -- )  226 148 152 u8 ;   \ └ ┘
+: box-h  ( -- )  226 148 128 u8 ;   : box-v  ( -- )  226 148 130 u8 ;   \ ─ │
+: hrule  ( n -- )  begin  dup 0 >  while  box-h  1-  repeat  drop ;
+: spaces ( n -- )  begin  dup 0 >  while  space   1-  repeat  drop ;
+variable bt  variable bl  variable bw  variable bh  variable br
+: box ( top left width height -- )      \ border + blank interior, drawn in place
+  bh ! bw ! bl ! bt !
+  bt @ bl @ at  box-tl  bw @ 2 - hrule  box-tr
+  bt @ 1+ br !
+  begin  br @  bt @ bh @ + 1 -  <  while
+    br @ bl @ at  box-v  bw @ 2 - spaces  box-v
+    br @ 1+ br !
+  repeat
+  bt @ bh @ + 1 -  bl @ at  box-bl  bw @ 2 - hrule  box-br ;
+
 : hide-cursor ( -- )  csi [char] ? emit [char] 2 emit [char] 5 emit [char] l emit ;
 : show-cursor ( -- )  csi [char] ? emit [char] 2 emit [char] 5 emit [char] h emit ;
 

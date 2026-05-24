@@ -92,6 +92,7 @@ variable cstk  64 cells allot     variable cn
   0 edone !  0 equit !  0 estepn !  0 rn !  0 cn ! ;
 
 \ --- short text labels (fr has no string literals, so we spell them) ---------
+56 constant EBW   8 constant EBH               \ the dashboard box: width, height
 : .ember ( -- ) [char] e emit [char] m emit [char] b emit [char] e emit [char] r emit ;
 : .code  ( -- ) [char] c emit [char] o emit [char] d emit [char] e emit ;
 : .data  ( -- ) [char] d emit [char] a emit [char] t emit [char] a emit ;
@@ -140,14 +141,14 @@ variable ci
   edone @ if  .done  else  .stepk  space space .runk  then
   space space  .editk  space space  .quitk  reset ;
 
-: draw ( -- )                     \ repaint in place (atclr clears each row's tail — no
-                                  \ full-screen wipe, so no flicker; see `clear` once below)
-  1 2 atclr  nord-cyan bold  .ember  [char] : emit  space  ecfa @ .cfaname  reset
-             space space  nord-dim [char] # emit  estepn @ .n  reset
-  3 2 atclr  nord-dim .call reset    3 9 at  draw-call
-  5 2 atclr  nord-dim .code reset    5 9 at  draw-thread
-  7 2 atclr  nord-dim .data reset    7 9 at  nord-orange .s reset
-  9 2 atclr  draw-status ;
+: draw ( -- )                     \ a bordered dashboard, redrawn in place each frame
+  1 1 EBW EBH box                 \   box clears the interior, so no flicker, no atclr
+  1 3 at  nord-cyan bold  .ember  [char] : emit space  ecfa @ .cfaname  reset
+          space space  nord-dim [char] # emit  estepn @ .n  reset
+  3 3 at  nord-dim .call reset    3 9 at  draw-call
+  4 3 at  nord-dim .code reset    4 9 at  draw-thread
+  5 3 at  nord-dim .data reset    5 9 at  nord-orange .s reset
+  7 3 at  draw-status ;
 
 \ --- live edit: type a line of Forth into the TUI --------------------------
 \ `e` reads a line and re-targets the stepper. Numbers push, words run, and:
@@ -203,15 +204,16 @@ variable pa  variable pl  variable pf           \ previous token (addr,len) + ha
       lblen @ 87 < if  dup lbuf lblen @ + c!  lblen @ 1+ lblen !  emit  else drop then
     then
   0 until ;
+: eline ( -- )  7 3 at  EBW 5 - spaces  7 3 at ;   \ clear the status row (inside the box)
 : edit-target ( -- )                           \ prompt, read a line, re-target the stepper
-  9 2 atclr  [char] > emit space  show-cursor
+  eline  [char] > emit space  show-cursor
   read-line  hide-cursor
   last-token  2dup colon? if                    ( addr len )  \ ends in a colon word: step it
     2drop  clear-stack  run-setup  einit
   else 2dup known? if                            ( addr len )  \ ends in a number/primitive:
     2drop  clear-stack  run-all  ecfa @ einit     \   run the whole line, re-step current word
   else                                           ( addr len )  \ unknown token: flash, keep current
-    9 2 atclr  3 fg  type  space [char] ? emit  reset  key drop
+    eline  nord-yellow  type  space [char] ? emit  reset  key drop
   then then ;
 
 \ --- the event loop ----------------------------------------------------------
