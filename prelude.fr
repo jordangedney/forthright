@@ -67,6 +67,9 @@ variable up
 \ with ANSI escapes (emit/type) — the whole TUI without leaving fr.
 \ (Through a pipe `key` competes with the interpreter for stdin; it's meant for
 \ an interactive tty.)  syscall3: ( a1 a2 a3 n -- ret ).
+\ syscall3 — the common case (read/write/ioctl take <=3 args), derived from the
+\ kernel's general syscall6 by passing zeros for args 4-6.
+: syscall3 ( a1 a2 a3 n -- ret )   >r  0 0 0  r>  syscall6 ;
 variable keybuf
 : key ( -- c )   0 keybuf 1 0 syscall3  1 < if  -1  else  keybuf c@  then ;  \ -1 on EOF
 

@@ -27,6 +27,7 @@ check "control flow: -7 abs"     "$( ( cat prelude.fr; echo ': abs dup 0 < if ne
 check "see: disassemble square"  "$( ( cat prelude.fr; echo 'see square' ) | ./fr )"               "dup * ;"
 check "trace: step square on 5"  "$( ( cat prelude.fr; echo '5 trace square' ) | ./fr )"           "* > 25"
 check "syscall3: raw write(2)"   "$( ( cat prelude.fr; echo 'variable m 72 m c! 73 m 1+ c! 1 m 2 1 syscall3 drop' ) | ./fr )" "HI"
+check "syscall6: mmap a page"    "$( ( cat prelude.fr; echo '0 4096 3 34 -1 0 9 syscall6 dup 42 swap ! @ .' ) | ./fr )" "42"
 check "term: ANSI cursor+colour"  "$( ( cat prelude.fr term.fr; echo '7 12 1 paint' ) | ./fr )"        "[7;12H"
 check "anvil: def ... ok"        "$( ( cat prelude.fr anvil.fr; echo 'def sq ( n -- n ) dup * ;' ) | ./fr )" "ok"
 check "anvil: catches BAD"       "$( ( cat prelude.fr anvil.fr; echo 'def bad ( a b -- c ) + + ;' ) | ./fr )" "BAD"

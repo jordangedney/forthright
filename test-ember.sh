@@ -44,6 +44,10 @@ check "ember.fr: steps into colon"  "$( ( $LT; echo "$CUBE 3 ' cube einit estep 
 check "ember.fr: call-path depth"   "$( ( $LT; echo "$CUBE 3 ' cube einit estep estep cn @ ." ) | ./fr )"          "1"
 check "ember.fr: nested run (cube 3)" "$( ( $LT; echo "$CUBE 3 ' cube einit erun .s" ) | ./fr )"                   "27"
 
+# ptrace from fr: fork a child, PTRACE_TRACEME + SINGLESTEP it, confirm RIP advanced.
+# This is the groundwork for self-hosting ember's debugger backend (no Python).
+check "ptrace.fr: fr single-steps a child" "$( ( cat prelude.fr ptrace.fr; echo trace-demo ) | ./fr )" "MOVED"
+
 # --- end-to-end backends (slower: a pty and a ptraced process) -----------------
 check "ember.fr: pty stepper 5->25"  "$(timeout 30 ./ember-fr --selftest)"        "EMBER-FR PASS"
 check "ember: Python model"          "$(./ember --selftest)"                      "ALL PASS"

@@ -15,8 +15,11 @@ holds two pieces:
 
 - **`fr`** — a freestanding indirect-threaded-code (ITC) Forth for x86-64 Linux, written
   as a single GNU-assembler file `fr.s`. No libc, no runtime: raw syscalls + threaded code.
-  Exposes `syscall3 ( a1 a2 a3 n -- ret )` — a raw Linux syscall (≤3 args: read/write/ioctl
-  fit), which opens raw-tty I/O to fr and is the gate for a self-hosted interactive ember.
+  Exposes `syscall6 ( a1 a2 a3 a4 a5 a6 n -- ret )` — a raw Linux syscall (up to 6 args),
+  the one primitive that opens the whole OS to fr: read/write/ioctl (raw-tty), mmap, and
+  crucially ptrace/fork/wait4 (so even the debugger backend is reachable from fr). `syscall3`
+  is now a prelude word derived from it. ABI: number in `%rax`, args in `%rdi %rsi %rdx %r10
+  %r8 %r9` (arg4 is `%r10`, not `%rcx`); `%rsi` is the Forth IP so arg2 is parked + IP saved.
 - **`ember`** — a Python/curses TUI that single-steps the engine and visualizes it. By
   default it drives the *real* `fr` binary under `ptrace`; `--python` uses an equivalent
   pure-Python model. At startup it **bootstraps `prelude.fr`** into the traced fr (so
@@ -68,9 +71,11 @@ explorer, in Python and now self-hosted) · **anvil** (the verifier) · **forge*
 
 **File conventions.** Forth source uses the `.fr` extension (the kernel `fr.s` is GNU
 assembler). The project's direction is to **self-host its tooling in fr**, keeping the whole
-trust base small/auditable — `anvil.fr`, `forge.fr`, `term.fr`, and now `ember.fr` are all
-self-hosted. The remaining host-language piece is `ember` (Python), whose `ptrace` backend
-fr can't replace; its `anvil-reference.py`/`forge-reference.py` *reference specs* track
+trust base small/auditable — `anvil.fr`, `forge.fr`, `term.fr`, `ember.fr`, and `ptrace.fr`
+are all self-hosted. The Python `ember` remains only as the *richer* explorer (its ptrace
+backend + curses chrome); with `syscall6`, fr can now ptrace too (`ptrace.fr` single-steps a
+child), so a self-hosted backend is reachable. The `anvil-reference.py`/`forge-reference.py`
+*reference specs* track
 intended behavior and **must be kept in sync as those tools gain features**. `ember.fr` is
 launched via the `ember-fr` pty bridge (host-glue, like ember's ptrace backend).
 

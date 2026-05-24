@@ -80,20 +80,22 @@ assembly is a throwaway bootstrap.
   (`,` for code), enough to re-emit the primitives. Then a Forth that compiles its
   own NEXT/docol/primitives — true self-hosting, where the `.s` file is a seed you
   could regenerate. Hard, beautiful, and the natural terminus of "everything in fr."
-- A generic **`syscall` primitive** — **DONE** (`syscall3` + `key`), and on top of it
-  `term.fr` (ANSI + termios cbreak via `ioctl`) and **`ember.fr` — DONE:** an interactive
-  visual stepper written in fr, run with no Python: `./fr prelude.fr term.fr ember.fr`. It
-  already has parity with the Python ember's *core*: it **steps into colon words** (call-tree
-  walk, `call`/`code`/`data` panels), **follows control flow** (if/else + loops), and has
-  **run-to-end** (`r`). The kernel **loads source from argv** + reassembles tokens/comments
-  across refills, so the launch needs no library-feeding. What's left to close the gap fully:
+- A generic **`syscall` primitive** — **DONE** (`syscall6` + `key`), and on top of it
+  `term.fr` (ANSI + termios cbreak via `ioctl`), **`ember.fr` — DONE** (a visual stepper in
+  fr that steps into colon words, follows control flow, runs with no Python), and **`ptrace.fr`
+  — DONE** (fr forks a child, `PTRACE_TRACEME`s it, single-steps it, reads RIP). The kernel
+  also **loads source from argv** + reassembles tokens/comments across refills. ember.fr is at
+  parity with the Python ember's *core*; what's left to close the gap:
+  - **Self-host the ptrace backend (the big one, now in reach).** `ptrace.fr` proves the
+    primitives. A fr-native `NativeVM` would: fork+exec `./fr`, `PTRACE_SINGLESTEP` to each
+    `jmp *(%rax)` boundary, `PTRACE_GETREGS`/`PEEKDATA` (or read `/proc/pid/mem`) to pull
+    `%rsi`/stacks/the live thread, and decode it with `see`'s machinery. Then ember.fr drives
+    the *real* engine, and the Python `ember` is fully redundant. Wants: an ELF `.symtab`
+    reader in fr (or a fixed symbol table emitted at build), and `GETREGS` struct decoding.
   - **Buffer redraws.** `term.fr` emits one `write(2)` per byte; a frame is many tiny
     syscalls (flicker). Render into a string buffer and `type` it once. Wants `s"`-style
     string building (or just a scratch buffer + `c!` cursor) — a good prelude addition.
-  - **More panels.** A dictionary list (walk `latest`); an editable input line so you can
-    type/define words live (`key` + an edit buffer) instead of passing the word up front.
-  - **Polish toward the Python look.** Nord colours, a blinking IP marker, autoplay with a
-    speed control (`r` runs flat-out now), breakpoints on a chosen cell.
+  - **More panels / live edit line / Nord polish** — the remaining curses chrome.
 
 ## Cross-cutting: the corpus
 

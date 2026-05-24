@@ -83,15 +83,16 @@ data stack — so they never touch it (the return address lives there transientl
 and they save/restore `%rsi` (the IP) around syscalls that clobber it. Break this
 and the data stack corrupts subtly. This is the easiest kernel invariant to violate.
 
-### `syscall3` is the one OS primitive, capped at 3 args
-The kernel exposes a single generic `syscall3 ( a1 a2 a3 n -- ret )` rather than a
-family (`syscall0..6`) or per-call words (`read`/`write`/`ioctl`). **Why:** read,
-write, and ioctl — everything an interactive TUI needs — all take ≤3 args, and one
-word keeps the trust base small while letting the *prelude* name the syscalls (e.g.
-`key`). **Why stop at 3:** the 4th arg uses `%r10` (not the C `%rcx`), and `%rsi` is
-the Forth IP — so arg2 is parked in `%r8` and `%rsi` saved across the call. A 6-arg
-form (for `mmap`) is a straightforward extension if ever needed. This is a sharp
-edge: a wrong syscall number does a *real* syscall — fr no longer fails safe.
+### `syscall6` is the one OS primitive; everything else is a prelude word
+The kernel exposes a single generic `syscall6 ( a1 a2 a3 a4 a5 a6 n -- ret )` rather
+than per-call words (`read`/`write`/`ioctl`). Args go in `%rdi %rsi %rdx %r10 %r8 %r9`
+(arg4 is `%r10`, not the C `%rcx`, which `syscall` clobbers); `%rsi` is the Forth IP,
+so arg2 is parked in `%rcx` *before* the call and the IP is saved across it. **Why 6
+and not 3:** the original `syscall3` couldn't reach 4+-arg calls — including `ptrace`
+— so generalising it is what made fr's own debugger backend possible. `syscall3` now
+lives in the *prelude*, derived by passing three zeros, which keeps the kernel to one
+syscall word and the common case readable. **Sharp edge:** a wrong syscall number does
+a *real* syscall — fr no longer fails safe (e.g. a stray `ptrace` could stop a process).
 
 ### term.fr uses cbreak (not full raw) and emits byte-at-a-time
 The fr terminal layer clears only `ICANON|ECHO` in `c_lflag` — *cbreak*, not full
@@ -114,9 +115,13 @@ the cursor — it can't `execute` a branch without clobbering its own IP) and **
 colon words** (descends through `docol`/`EXIT` on its own `rstk`/`cstk` call stack, so the
 `code` panel follows the callee and `call` shows the path; primitives stay atomic). It is
 still a *subset*: it walks threaded cells, not raw machine instructions, and lacks the
-richer curses chrome. **What stays external:** the `NativeVM` ptrace backend (single-step
-the real fr, read `/proc/pid/mem`) — fr has no `ptrace`/`fork`/`waitpid` primitives, and
-that's a *host* debugging tool by nature, not part of the language's trust base.
+richer curses chrome. **On the ptrace backend** (the one piece this doc long called
+"out of fr's reach"): that was only true while the syscall primitive capped at 3 args.
+With `syscall6`, `ptrace`/`fork`/`wait4` are ordinary calls — `ptrace.fr` already forks a
+child, `PTRACE_TRACEME`s it, and single-steps it, reading RIP across the step. So a
+self-hosted `NativeVM` (single-step the real fr, peek `/proc/pid/mem` or `PTRACE_PEEKDATA`,
+decode the live thread) is now reachable in fr; the Python `ember` stays as the *richer*,
+already-built explorer, not because fr *can't* do it.
 
 ### ember.fr runs with no launcher; `ember-fr` is just a pty wrapper, and `q` exits fr
 `raw-on` does an `ioctl` on fd 0, which fails on a pipe — so `ember.fr` needs a real

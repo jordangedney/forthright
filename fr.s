@@ -768,23 +768,28 @@ code_SP0:
 	push %rax
 	NEXT
 
-# syscall3 — a raw Linux syscall with up to 3 arguments. The one primitive that
-# opens the rest of the OS to fr: read/write/ioctl all take <=3 args, so this is
-# enough for raw-tty input (ioctl TCGETS/TCSETS) and ANSI output — the unlock for
-# a fully self-hosted, interactive ember. (We stop at 3 args because the 4th uses
-# %r10 and the 6-arg form is rarely needed; extend the same way if mmap is wanted.)
-# %rsi is the Forth IP, so arg2 is parked in %r8 and %rsi saved across the call.
-h_SYSCALL3: .quad h_SP0
+# syscall6 — a raw Linux syscall with up to 6 arguments: the one primitive that
+# opens the whole OS to fr. The Linux x86-64 convention puts the call number in
+# %rax and args in %rdi %rsi %rdx %r10 %r8 %r9 (note: arg4 is %r10, NOT the C %rcx,
+# which `syscall` clobbers along with %r11). Unused trailing args are passed as 0.
+# This covers everything fr might want — mmap (6 args), and crucially ptrace / fork
+# / wait4 / execve, so the explorer's debugger backend is reachable from fr itself.
+# %rsi is the Forth IP, so arg2 is parked in %rcx (set before `syscall`) and the IP
+# is saved across the call. syscall3 is now derived from this, in the prelude.
+h_SYSCALL6: .quad h_SP0
 	.byte 8
-	.ascii "syscall3"
-SYSCALL3: .quad code_SYSCALL3		# ( a1 a2 a3 n -- ret )  n = syscall number
-code_SYSCALL3:
+	.ascii "syscall6"
+SYSCALL6: .quad code_SYSCALL6		# ( a1 a2 a3 a4 a5 a6 n -- ret )  n = syscall number
+code_SYSCALL6:
 	pop %rax			# syscall number
+	pop %r9				# arg6
+	pop %r8				# arg5
+	pop %r10			# arg4  (the ABI's 4th register; not %rcx)
 	pop %rdx			# arg3
-	pop %r8				# arg2 (parked: %rsi holds the IP)
+	pop %rcx			# arg2  (parked here; %rsi still holds the IP)
 	pop %rdi			# arg1
 	push %rsi			# save IP across the syscall
-	mov %r8, %rsi			# arg2 -> %rsi
+	mov %rcx, %rsi			# arg2 -> %rsi  (done before syscall clobbers %rcx)
 	syscall				# clobbers %rcx, %r11; result in %rax
 	pop %rsi			# restore IP
 	push %rax			# push the return value
@@ -1099,7 +1104,7 @@ errmsg:	.ascii " ?\n"
 	.equ errmsg_len, . - errmsg
 
 	.data
-var_latest: .quad h_SYSCALL3		# newest dictionary entry (head of FIND)
+var_latest: .quad h_SYSCALL6		# newest dictionary entry (head of FIND)
 systab:     .quad docol, LIT, EXIT, BRANCH, ZBRANCH	# headerless engine CFAs (for `see`)
 var_state:  .quad 0			# 0 = interpret, 1 = compile
 var_here:   .quad dict_space		# next free byte for new definitions

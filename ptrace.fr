@@ -1,0 +1,56 @@
+\ ptrace.fr — process control and ptrace, in fr, built on the kernel's syscall6.
+\ This is the groundwork for self-hosting ember's debugger backend (driving the real
+\ fr engine under ptrace) — the one piece that had to live in Python. ptrace turns
+\ out not to be special at all: it's syscall 101, so syscall6 reaches it directly.
+\
+\     ( cat prelude.fr ptrace.fr; echo trace-demo ) | ./fr
+\
+\ trace-demo forks a child that asks to be traced (PTRACE_TRACEME) and stops itself;
+\ the parent then single-steps it and reads its instruction pointer before and after,
+\ proving the step actually advanced the child's RIP. Depends on prelude.fr.
+
+\ --- syscall numbers (x86-64) and ptrace request codes -----------------------
+57  constant SYS_fork
+61  constant SYS_wait4
+62  constant SYS_kill
+39  constant SYS_getpid
+101 constant SYS_ptrace
+0   constant PTRACE_TRACEME
+3   constant PTRACE_PEEKUSER
+7   constant PTRACE_CONT
+9   constant PTRACE_SINGLESTEP
+19  constant SIGSTOP
+128 constant uRIP             \ byte offset of RIP in the x86-64 user area
+
+\ --- thin wrappers (each is just an argument shuffle into syscall6) -----------
+: fork     ( -- pid )       0 0 0 0 0 0 SYS_fork    syscall6 ;
+: getpid   ( -- pid )       0 0 0 0 0 0 SYS_getpid  syscall6 ;
+: traceme  ( -- )           PTRACE_TRACEME 0 0 0 0 0 SYS_ptrace syscall6 drop ;
+: kill     ( pid sig -- )   0 0 0 0 SYS_kill syscall6 drop ;
+variable st
+: pwait    ( -- status )    -1 st 0 0 0 0 SYS_wait4 syscall6 drop  st @ ;
+: ssstep   ( pid -- )       PTRACE_SINGLESTEP swap 0 0 0 0 SYS_ptrace syscall6 drop ;
+: pcont    ( pid -- )       PTRACE_CONT       swap 0 0 0 0 SYS_ptrace syscall6 drop ;
+\ PEEKUSER: the raw syscall writes the word to *data and returns 0 (unlike glibc).
+variable pkbuf
+: peekreg  ( pid off -- v ) PTRACE_PEEKUSER rot rot  pkbuf 0 0  SYS_ptrace syscall6 drop  pkbuf @ ;
+: peekrip  ( pid -- rip )   uRIP peekreg ;
+
+\ --- the demo: trace a child and single-step it ------------------------------
+variable cpid  variable r0  variable r1
+: .moved ( -- ) [char] M emit [char] O emit [char] V emit [char] E emit [char] D emit ;
+: trace-demo ( -- )
+  fork  dup 0= if                       \ in the child:
+    drop  traceme                        \   ask the parent to trace us
+    getpid SIGSTOP kill                  \   stop, handing control to the parent
+    bye                                  \   (parent steps us off the end)
+  else                                   \ in the parent (pid on the stack):
+    cpid !
+    pwait drop                           \   reap the stop
+    cpid @ peekrip r0 !                  \   RIP before the step
+    cpid @ ssstep  pwait drop            \   single-step one instruction
+    cpid @ peekrip r1 !                  \   RIP after
+    cpid @ pcont   pwait drop            \   let the child run to exit
+    r0 @ .  r1 @ .                        \   show both instruction pointers
+    r0 @ r1 @ = 0= if  .moved cr  then    \   verdict: the step advanced RIP
+  then ;

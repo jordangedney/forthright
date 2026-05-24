@@ -28,6 +28,7 @@ and **forges** its own verified code.
 | `ember` | a Python/curses TUI that `ptrace`s the real `fr` and animates it |
 | `ember.fr` | the **self-hosted** ember: an interactive stepper *in fr* (`./fr prelude.fr term.fr ember.fr`) |
 | `ember-fr` | a pty wrapper around that, for scripted testing + pre-typing the command |
+| `ptrace.fr` | process control + ptrace *in fr* (`syscall6`): fr forks & single-steps a child |
 | `build.sh` | `as` + `ld` → `fr` |
 | `anvil-reference.py`, `forge-reference.py` | Python specs for the fr versions |
 
@@ -103,7 +104,7 @@ after them (`\ note`, `( note )`) — they are parsed as words.
 | output | `. (n-)` signed+newline · `emit (c-)` one byte · `type (a n-)` a string |
 | parse | `word (-a n)` next token · `find (a n - cfa\|0)` · `number (a n - n f)` · `s= (a1 n1 a2 n2 - f)` · `[char]` (immediate: compile next char) |
 | reflection | `latest (-hdr)` newest dict entry · `sys (-addr)` engine-CFA table · `execute (cfa-)` run a word · `sp@ (-a)` top-item addr · `sp0 (-a)` empty-stack base |
-| system | `syscall3 (a1 a2 a3 n - ret)` raw Linux syscall, ≤3 args (read/write/ioctl/getpid…); `n` is the syscall number |
+| system | `syscall6 (a1 a2 a3 a4 a5 a6 n - ret)` raw Linux syscall, up to 6 args (`n` = number); reaches mmap, ptrace, fork, wait4, … |
 | define | `: ;` colon defs · `variable name` (name pushes its cell addr) · `n constant name` (name pushes n) |
 | control (immediate) | `if … else … then` · `begin … until` · `begin … while … repeat` |
 | comments (immediate) | `\` to EOL · `( … )` |
@@ -118,6 +119,7 @@ after them (`\ note`, `( note )`) — they are parsed as words.
 | compare | `> (ab-f)` `0= (n-f)` |
 | memory/parse | `, (x-)` append a cell at `here` · `char (-c)` first char of next token |
 | output | `cr` newline · `space` · `u. (u-)` unsigned no-newline · `.n (n-)` signed no-newline |
+| system | `syscall3 (a1 a2 a3 n - ret)` the ≤3-arg syscall (read/write/ioctl/getpid…), derived from `syscall6` |
 | input | `key (-c)` read one byte from stdin (via `syscall3`; for an interactive tty) |
 | reflection | `' (-cfa)` tick: next word's CFA · `see` disassemble next word · `.cfaname (cfa-)` · constants `'docol 'lit 'exit 'branch '0branch` |
 | stack tools | `depth (-n)` · `.s` print the stack (non-destructive) · `trace` step a word on the live stack, printing each step (the self-hosted analog of ember's step view; straight-line + literals only) |
@@ -289,10 +291,11 @@ self-hosted disassembler `see` and tracer `trace`), the verifier `anvil`, the
 synthesis loop `forge`, the terminal layer `term.fr`, and `ember.fr` — an interactive
 visual stepper written in fr that *steps into colon words* (a `call`/`code`/`data` view,
 like the Python ember) and *follows control flow* (if/else and loops). Run it with no
-Python: `./fr prelude.fr term.fr ember.fr`, then type `3 ' cube ember`. fr
-writes, verifies, forges, and now *watches* its own code. The Python `ember` keeps only
-what fr can't reach: the `ptrace` backend that single-steps the real machine
-instructions and its full multi-panel debugger view.
+Python: `./fr prelude.fr term.fr ember.fr`, then type `3 ' cube ember`. fr writes,
+verifies, forges, and *watches* its own code — and with `syscall6` it can now even
+**ptrace** (`ptrace.fr` forks and single-steps a child), so driving the real engine
+under ptrace is reachable in fr too. The Python `ember` stays as the richer, already-built
+explorer (full curses chrome), not because fr can't do the job.
 
 Open directions if continuing: more `forge` targets / a smarter generator; pushing
 `s=`/`find`/`number` into the prelude for an even smaller kernel; allowing control flow

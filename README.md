@@ -229,15 +229,19 @@ new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checki
 - [x] **`trace`** (prelude.fr) — single-step a word on the live stack, printing it
       each step; the fr-native analog of ember's step view. Needed `sp@`/`sp0`
       (kernel) for `depth`/`.s`.
-- [x] **`syscall3`** (kernel) + **`key`** (prelude) — one generic Linux syscall
-      (≤3 args: read/write/ioctl), opening raw-tty I/O to fr.
+- [x] **`syscall6`** (kernel) + **`key`** (prelude) — one generic Linux syscall (up to
+      6 args), the gate to the whole OS; `syscall3` is derived from it in the prelude.
 - [x] **term.fr** — terminal control *in fr*: ANSI escapes (`clear at fg bg`) and
       termios cbreak via `ioctl` (`raw-on`/`raw-off`, validated under a pty).
 - [x] **Robust input + file loading** (kernel) — `_word` reassembles tokens (and the
       comment words refill) across reads, so input can arrive in any chunk size; and
       `./fr a.fr b.fr` loads source files from `argv` before the stdin REPL.
 - [x] **ember.fr** — the **self-hosted ember**: an interactive visual stepper written
-      in fr, run with no Python (`./fr prelude.fr term.fr ember.fr`). Steps a word's
-      threaded body on the live stack, current cell highlighted, and **follows control
-      flow** (if/else + loops). fr now writes, verifies, forges, *and watches* its own
-      code — only the ptrace backend stays in Python.
+      in fr, run with no Python (`./fr prelude.fr term.fr ember.fr`). It **steps into
+      colon words** (`call`/`code`/`data` view) and **follows control flow** (if/else +
+      loops). fr now writes, verifies, forges, *and watches* its own code.
+- [x] **ptrace.fr** — process control + **ptrace** *in fr*: fork a child, `PTRACE_TRACEME`
+      + `PTRACE_SINGLESTEP` it, read its RIP across the step. ptrace was never special —
+      just a 4-arg syscall `syscall3` couldn't reach. So even the debugger backend that
+      "stayed in Python" is now within fr's grasp; the Python `ember` remains the richer,
+      already-built explorer, not a thing fr is incapable of.
