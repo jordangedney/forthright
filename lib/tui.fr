@@ -1,0 +1,55 @@
+include lib/prelude.fr			\ depends on: prelude, math, draw, key
+include lib/math.fr
+include lib/draw.fr
+include lib/key.fr
+
+\ tui.fr — small widget toolkit on draw + key. Use under raw-on / hide-cursor.
+\ An "items" array is `count` consecutive (str-addr, str-len) cell pairs, e.g.
+\   create groceries  ' ... ' ...   (or hand-build with , )  — see ROADMAP for create.
+\ For now build the array with a variable + ! , or pass literals via a helper.
+
+: label ( row col addr len -- )  at-type ;	\ draw a string at (row,col)
+
+\ status-bar — a reverse-video string at the given row.
+: status-bar ( row addr len -- )  >r >r 1 at  reverse  r> r> type  reset ;
+
+\ menu — a vertical list of items[count], the selected one shown reverse-video.
+variable m-t  variable m-l  variable m-items  variable m-n  variable m-sel  variable m-i
+: menu-item ( i -- addr len )  m-items @ swap 2 * cells +  dup @  swap cell+ @ ;
+: menu-redraw ( -- )
+  0 m-i !
+  begin  m-i @ m-n @ <  while
+    m-t @ m-i @ +  m-l @ at
+    m-i @ m-sel @ = if  reverse  then
+    m-i @ menu-item type  reset
+    m-i @ 1+ m-i !
+  repeat ;
+: menu-draw ( top left items count sel -- )  m-sel ! m-n ! m-items ! m-l ! m-t ! menu-redraw ;
+: menu-run  ( top left items count sel -- choice )	\ arrows move, Enter picks, Esc -> -1
+  m-sel ! m-n ! m-items ! m-l ! m-t !
+  begin
+    menu-redraw
+    getkey
+    dup KEY-UP    = if  drop  m-sel @ 1- 0 max          m-sel !
+    else dup KEY-DOWN = if  drop  m-sel @ 1+ m-n @ 1- min  m-sel !
+    else dup KEY-ENTER = if  drop  m-sel @  exit
+    else dup KEY-ESC   = if  drop  -1      exit
+    else drop  then then then then
+  0 until ;
+
+\ accept — read a line into buf (max bytes), echoing; Backspace edits, Enter ends.
+\ Returns the length. This is the editable-text-field primitive.
+variable ac-buf  variable ac-max  variable ac-len
+: accept ( buf max -- len )
+  ac-max !  ac-buf !  0 ac-len !
+  begin
+    getkey
+    dup KEY-ENTER = over 0< or if  drop  ac-len @  exit  then	\ Enter or EOF -> done
+    dup KEY-BS = over 8 = or if  drop
+      ac-len @ 0 > if  ac-len @ 1- ac-len !  8 emit space 8 emit  then
+    else
+      dup 32 >=  over 127 <  and  ac-len @ ac-max @ <  and if
+        dup ac-buf @ ac-len @ + c!  ac-len @ 1+ ac-len !  emit
+      else  drop  then
+    then
+  0 until ;

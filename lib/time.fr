@@ -1,0 +1,20 @@
+include lib/prelude.fr			\ depends on: prelude, math
+include lib/math.fr
+
+\ time.fr — wall clock + sleep, via clock_gettime(2) and nanosleep(2).
+\ Handy for frame pacing / animation in a TUI (an alternative to term's raw-timed).
+
+228 constant SYS_clock_gettime
+35  constant SYS_nanosleep
+1   constant CLOCK_MONOTONIC		\ steady clock (not wall time) — good for deltas
+
+variable tspec  16 allot		\ struct timespec { i64 sec; i64 nsec; }
+: now-ms ( -- ms )			\ monotonic milliseconds
+  CLOCK_MONOTONIC tspec 0 0 0 0 SYS_clock_gettime syscall6 drop
+  tspec @ 1000 *  tspec 8 + @ 1000000 /  + ;
+
+variable req  16 allot
+: sleep-ms ( ms -- )			\ sleep for ms milliseconds
+  dup 1000 /        req !			\ whole seconds
+  1000 mod 1000000 * req 8 + !			\ remaining nanoseconds
+  req 0 0 0 0 0 SYS_nanosleep syscall6 drop ;

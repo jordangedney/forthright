@@ -1,0 +1,17 @@
+include lib/prelude.fr			\ depends on: prelude
+
+\ math.fr — small integer helpers, all derivable from the kernel's + - * / .
+\ (The kernel keeps only the irreducible ops; everything here is plain fr.)
+
+: 2*   ( n -- 2n )      2 * ;
+: 2/   ( n -- n/2 )     2 / ;
+: abs  ( n -- |n| )     dup 0< if negate then ;
+: <=   ( a b -- f )     > 0= ;
+: >=   ( a b -- f )     < 0= ;
+: max  ( a b -- m )     2dup < if swap then drop ;
+: min  ( a b -- m )     2dup > if swap then drop ;
+: /mod ( a b -- r q )   2dup / >r  r@ * -  r> ;	\ remainder + quotient
+: mod  ( a b -- r )     /mod drop ;
+: within ( n lo hi -- f )  >r over <= swap r> < and ;	\ lo <= n < hi
+: +!   ( n addr -- )    dup @ rot + swap ! ;	\ add n to the cell at addr
+: clamp ( n lo hi -- n' )  >r max r> min ;	\ clamp n to [lo, hi]

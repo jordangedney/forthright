@@ -1,0 +1,37 @@
+include lib/prelude.fr			\ depends on: prelude, math
+include lib/math.fr
+
+\ fmt.fr — number formatting: to-string, right-justified, hex. For tables/columns
+\ in a TUI. `.n`/`u.` (prelude) print directly; these build into a buffer so the
+\ width is known, enabling padding.
+
+variable nbuf  32 allot   variable nbp
+: spaces ( n -- )  begin  dup 0 >  while  space  1-  repeat  drop ;	\ (also in term.fr)
+
+: u>str ( u -- addr len )		\ unsigned -> decimal digits, built backward in nbuf
+  nbuf 32 + nbp !
+  begin
+    10 /mod  swap 48 +  nbp @ 1- dup nbp ! c!	\ digit = (u mod 10) + '0'
+    dup 0=
+  until  drop
+  nbp @  nbuf 32 + over - ;
+
+: u>hex ( u -- addr len )		\ unsigned -> hex digits
+  nbuf 32 + nbp !
+  begin
+    16 /mod  swap  dup 9 > if 55 + else 48 + then  nbp @ 1- dup nbp ! c!
+    dup 0=
+  until  drop
+  nbp @  nbuf 32 + over - ;
+
+: type-pad ( addr len w -- )  over - spaces type ;	\ right-justify (addr len) in width w
+: u.r ( u w -- )   swap u>str rot type-pad ;	\ unsigned, right-justified
+: .x  ( u -- )     u>hex type ;			\ hex, no padding
+
+variable fw  variable fneg
+: .r  ( n w -- )			\ signed, right-justified in width w (sign included)
+  fw !  dup 0< fneg !  abs u>str
+  fneg @ if 1+ then			\ the '-' takes a column
+  fw @ over - spaces
+  fneg @ if 1- [char] - emit then
+  type ;

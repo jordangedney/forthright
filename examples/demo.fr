@@ -1,0 +1,30 @@
+include lib/tui.fr			\ pulls draw, key, term, math, prelude
+include lib/fmt.fr
+
+\ demo.fr — a non-interactive sample screen showing the lib composing.
+\   ./fr examples/demo.fr
+\ (For the interactive version, swap `menu-draw` for `menu-run` under raw-on +
+\  hide-cursor and read the returned choice — see lib/README.md.)
+
+: i1 s" New game" ;   : i2 s" Load game" ;   : i3 s" Quit" ;
+variable items  6 cells allot
+i1 items cell+ ! items !
+i2 items 3 cells + ! items 2 cells + !
+i3 items 5 cells + ! items 4 cells + !
+
+variable r
+: squares ( -- )			\ a little fmt table: n and n*n, right-justified
+  1 r !
+  begin  r @ 5 <=  while
+    9 r @ +  6 at  r @ 3 u.r  r @ r @ *  6 u.r
+    r @ 1+ r !
+  repeat ;
+
+clear
+1 2 34 13 s" forthright · lib demo" panel
+3 4 s" menu (draw only — item 2 selected):" label
+4 6 items 3 1 menu-draw
+8 4 s" n   n*n" label
+squares
+15 1 at
+bye

@@ -1,0 +1,29 @@
+include lib/prelude.fr			\ depends on: prelude (key), term (raw-timed/raw-poll)
+include lib/term.fr
+
+\ key.fr — decode keystrokes, including ANSI escape sequences, into named keys.
+\ Use under raw-on (cbreak). `getkey` returns a raw byte for ordinary keys, or one of
+\ the KEY-* codes (>=256, out of the byte range) for arrows / home / end. A lone Esc
+\ returns KEY-ESC (it peeks for a following byte with a short timeout, so Escape isn't
+\ swallowed waiting for a sequence that never comes).
+
+256 constant KEY-UP	257 constant KEY-DOWN	258 constant KEY-RIGHT	259 constant KEY-LEFT
+260 constant KEY-HOME	261 constant KEY-END	262 constant KEY-PGUP	263 constant KEY-PGDN
+13  constant KEY-ENTER	27  constant KEY-ESC	127 constant KEY-BS	9 constant KEY-TAB
+
+variable kc
+: csi-final ( c -- key )		\ map the final byte of an ESC[ / ESC O sequence
+  dup [char] A = if drop KEY-UP    exit then
+  dup [char] B = if drop KEY-DOWN  exit then
+  dup [char] C = if drop KEY-RIGHT exit then
+  dup [char] D = if drop KEY-LEFT  exit then
+  dup [char] H = if drop KEY-HOME  exit then
+  dup [char] F = if drop KEY-END   exit then
+  drop KEY-ESC ;			\ unrecognised sequence -> treat as Esc
+: getkey ( -- key )
+  key  dup KEY-ESC = 0= if  exit  then	\ ordinary byte (or EOF -1)
+  drop
+  1 raw-timed  key  raw-poll  kc !	\ peek the next byte (times out -> lone Esc)
+  kc @ 0< if  KEY-ESC exit  then
+  kc @ [char] [ =  kc @ [char] O =  or  0= if  kc @ exit  then	\ Esc + some other key
+  key csi-final ;			\ read + map the sequence's final byte

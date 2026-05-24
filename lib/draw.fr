@@ -1,0 +1,31 @@
+include lib/prelude.fr			\ depends on: prelude, term
+include lib/term.fr
+
+\ draw.fr — higher-level drawing on top of term: titled panels, rules, rectangles.
+\ Coordinates are 1-based (row, col), matching term's `at`. A "panel" is a box with
+\ a title sitting on the top border, the staple of a TUI layout.
+
+variable d-t  variable d-l  variable d-w  variable d-h  variable d-ta  variable d-tl
+: panel ( top left w h title-addr title-len -- )	\ a bordered box with a title
+  d-tl ! d-ta ! d-h ! d-w ! d-l ! d-t !
+  d-t @ d-l @ d-w @ d-h @ box
+  d-t @ d-l @ 2 + at  space  d-ta @ d-tl @ type  space ;
+
+: hline ( row col n -- )  >r at  r> hrule ;		\ horizontal rule of n cells
+
+variable v-r  variable v-c  variable v-n
+: vline ( row col n -- )  v-n ! v-c ! v-r !
+  begin  v-n @ 0 >  while
+    v-r @ v-c @ at  box-v
+    v-r @ 1+ v-r !  v-n @ 1- v-n !
+  repeat ;
+
+variable r-t  variable r-l  variable r-w  variable r-h  variable r-i
+: clear-rect ( top left w h -- )			\ blank a rectangle with spaces
+  r-h ! r-w ! r-l ! r-t !  0 r-i !
+  begin  r-i @ r-h @ <  while
+    r-t @ r-i @ +  r-l @ at  r-w @ spaces
+    r-i @ 1+ r-i !
+  repeat ;
+
+: at-type ( row col addr len -- )  >r >r at r> r> type ;	\ position, then print a string
