@@ -63,7 +63,11 @@ routines, and `code_INTERPRET` (`fr.s:382`) dispatches one token. The loop itsel
 Forth*: the `QUIT` word is `INTERPRET ; BRANCH <back>` running forever — assembly and threaded
 code interleave through `NEXT`. Compile mode uses `var_state`/`var_here`/`dict_space`: `:`
 (`code_COLON`) builds a header + `docol` codeword and enters compile mode; `;` is IMMEDIATE
-and compiles `EXIT` then leaves compile mode.
+and compiles `EXIT` then leaves compile mode. Word-creating words share the `_create`
+helper (builds the header from a name in `%rdi`/`%rcx`, returns the CFA slot in `%r9`);
+the codeword it gets decides runtime behaviour — `docol` (colon), `dovar` (`variable`,
+pushes its data address), `doconst` (`constant`, pushes its value). Add `create`/`does>`
+the same way.
 
 **Control flow** (`if/else/then`, `begin/until`) is built the standard Forth way: they are
 IMMEDIATE words that run *during compilation*, emitting `BRANCH`/`ZBRANCH` (0branch) cells +

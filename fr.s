@@ -45,6 +45,17 @@ docol:
 	mov %rax, %rsi
 	NEXT
 
+# dovar / doconst — runtime behaviours for `variable` / `constant` (cf. docol).
+# On entry %rax = the word's CFA, so its data cell is at CFA+8.
+dovar:					# ( -- addr )  push the data cell's address
+	lea 8(%rax), %rdx
+	push %rdx
+	NEXT
+doconst:				# ( -- n )  push the stored value
+	mov 8(%rax), %rdx
+	push %rdx
+	NEXT
+
 # ===========================================================================
 # Internal words (no dictionary header — used only by threaded code, not typed).
 
@@ -208,24 +219,7 @@ h_COLON: .quad h_SQUARE
 COLON:	.quad code_COLON
 code_COLON:
 	call _word			# rdi = name ptr, rcx = len
-	mov var_here, %r8		# new header starts at HERE
-	mov var_latest, %rax
-	mov %rax, (%r8)			# link -> previous latest
-	mov %r8, var_latest		# this is now the newest word
-	mov %cl, 8(%r8)			# length byte (flags = 0)
-	lea 9(%r8), %r9			# copy the name: dest
-	mov %rdi, %r10			# src
-	mov %rcx, %r11			# count
-.colon_copy:
-	test %r11, %r11
-	jz .colon_done
-	movb (%r10), %al
-	movb %al, (%r9)
-	inc %r9
-	inc %r10
-	dec %r11
-	jmp .colon_copy
-.colon_done:
+	call _create			# build header; r9 = where the codeword goes
 	movq $docol, (%r9)		# codeword = docol; this cell is the CFA
 	add $8, %r9
 	mov %r9, var_here		# body compiles from here on
@@ -394,8 +388,156 @@ code_UNTIL:
 	mov %r8, var_here
 	NEXT
 
+# ---------------------------------------------------------------------------
+# Memory access and the dictionary pointer. Addresses are raw pointers; the
+# dictionary grows up through dict_space, tracked by `here` (var_here).
+
+h_FETCH: .quad h_UNTIL
+	.byte 1
+	.ascii "@"
+FETCH:	.quad code_FETCH		# ( addr -- x )
+code_FETCH:
+	pop %rax
+	mov (%rax), %rax
+	push %rax
+	NEXT
+
+h_STORE: .quad h_FETCH
+	.byte 1
+	.ascii "!"
+STORE:	.quad code_STORE		# ( x addr -- )
+code_STORE:
+	pop %rax			# addr
+	pop %rdx			# x
+	mov %rdx, (%rax)
+	NEXT
+
+h_CFETCH: .quad h_STORE
+	.byte 2
+	.ascii "c@"
+CFETCH:	.quad code_CFETCH		# ( addr -- byte )
+code_CFETCH:
+	pop %rax
+	movzbq (%rax), %rax
+	push %rax
+	NEXT
+
+h_CSTORE: .quad h_CFETCH
+	.byte 2
+	.ascii "c!"
+CSTORE:	.quad code_CSTORE		# ( byte addr -- )
+code_CSTORE:
+	pop %rax			# addr
+	pop %rdx			# byte
+	mov %dl, (%rax)
+	NEXT
+
+h_COMMA: .quad h_CSTORE
+	.byte 1
+	.ascii ","
+COMMA:	.quad code_COMMA		# ( x -- )  append a cell at HERE
+code_COMMA:
+	pop %rax
+	mov var_here, %rdx
+	mov %rax, (%rdx)
+	add $8, %rdx
+	mov %rdx, var_here
+	NEXT
+
+h_HERE:	.quad h_COMMA
+	.byte 4
+	.ascii "here"
+HERE:	.quad code_HERE			# ( -- addr )  the dictionary pointer
+code_HERE:
+	mov var_here, %rax
+	push %rax
+	NEXT
+
+h_ALLOT: .quad h_HERE
+	.byte 5
+	.ascii "allot"
+ALLOT:	.quad code_ALLOT		# ( n -- )  reserve n bytes
+code_ALLOT:
+	pop %rax
+	add %rax, var_here
+	NEXT
+
+h_CELLS: .quad h_ALLOT
+	.byte 5
+	.ascii "cells"
+CELLS:	.quad code_CELLS		# ( n -- n*8 )
+code_CELLS:
+	pop %rax
+	shl $3, %rax
+	push %rax
+	NEXT
+
+h_CELLPLUS: .quad h_CELLS
+	.byte 5
+	.ascii "cell+"
+CELLPLUS: .quad code_CELLPLUS		# ( addr -- addr+8 )
+code_CELLPLUS:
+	addq $8, (%rsp)
+	NEXT
+
+# variable / constant — create named storage. Both build a header via _create,
+# then set a codeword (dovar/doconst) and the data cell.
+
+h_VARIABLE: .quad h_CELLPLUS
+	.byte 8
+	.ascii "variable"
+VARIABLE: .quad code_VARIABLE		# ( -- )  `variable foo` -> foo pushes its addr
+code_VARIABLE:
+	call _word			# rdi/rcx = name
+	call _create			# r9 = CFA slot
+	movq $dovar, (%r9)
+	add $8, %r9
+	movq $0, (%r9)			# one zero-initialised data cell
+	add $8, %r9
+	mov %r9, var_here
+	NEXT
+
+h_CONSTANT: .quad h_VARIABLE
+	.byte 8
+	.ascii "constant"
+CONSTANT: .quad code_CONSTANT		# ( n -- )  `42 constant answer` -> answer pushes 42
+code_CONSTANT:
+	call _word			# value stays on the data stack beneath the retaddr
+	call _create
+	pop %rdx			# now take the value (stack is clean again)
+	movq $doconst, (%r9)
+	add $8, %r9
+	mov %rdx, (%r9)			# store the constant
+	add $8, %r9
+	mov %r9, var_here
+	NEXT
+
 # ===========================================================================
 # Outer interpreter helpers (register-passing; never touch the data stack).
+
+# _create — build a dictionary header for the name at %rdi/%rcx: link it in,
+# update var_latest, copy the name. Returns %r9 = address where the codeword
+# cell goes (i.e. the new word's CFA). Caller writes the codeword + any body.
+_create:
+	mov var_here, %r8		# header starts at HERE
+	mov var_latest, %rax
+	mov %rax, (%r8)			# link -> previous latest
+	mov %r8, var_latest		# this is now the newest word
+	mov %cl, 8(%r8)			# length byte (flags = 0)
+	lea 9(%r8), %r9			# dest for the name
+	mov %rdi, %r10			# src
+	mov %rcx, %r11			# count
+.create_copy:
+	test %r11, %r11
+	jz .create_done
+	movb (%r10), %al
+	movb %al, (%r9)
+	inc %r9
+	inc %r10
+	dec %r11
+	jmp .create_copy
+.create_done:
+	ret				# %r9 = address just past the name = the CFA
 
 # _refill — read a chunk of stdin into inbuf. On EOF, exit(0).
 _refill:
@@ -612,7 +754,7 @@ errmsg:	.ascii " ?\n"
 	.equ errmsg_len, . - errmsg
 
 	.data
-var_latest: .quad h_UNTIL		# newest dictionary entry (head of FIND)
+var_latest: .quad h_CONSTANT		# newest dictionary entry (head of FIND)
 var_state:  .quad 0			# 0 = interpret, 1 = compile
 var_here:   .quad dict_space		# next free byte for new definitions
 inbuf_len:  .quad 0			# valid bytes currently in inbuf
