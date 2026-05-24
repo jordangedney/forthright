@@ -1,0 +1,43 @@
+\ ember.fr — spec / TODO for a future self-hosted ember, written in fr Forth.
+\
+\ Not runnable yet: it's a living checklist that mirrors the Python `ember`
+\ (the threaded-code explorer). RULE: whenever a feature is added to the Python
+\ ember, add a matching line here, so that when fr is capable enough to host its
+\ own explorer we already have the to-do list. (`anvil-reference.py` plays the
+\ same role for `anvil.fr`.)
+\
+\ `\` is a line comment and `( ... )` a stack/inline comment — fr does not have
+\ either word yet, so this file is documentation until those land. Status keys:
+\   [x] implemented in the Python ember      [ ] not yet
+\   {need: ...} = fr capabilities required before this can be ported to fr
+
+\ === The model (the easy half — mostly arithmetic + memory) ===============
+\ [x] data stack + return stack mirrors of fr's two stacks   {need: @ ! arrays}
+\ [x] dictionary: link | flags+len | name | codeword, FIND by name
+\ [x] inner interpreter: NEXT dispatch, docol/EXIT hops
+\ [x] cells: LIT+value, EXIT, BRANCH+offset, ZBRANCH(0branch)+offset
+\ [x] step one cell; run-to-halt; detect underflow / halt
+\ [ ] bounded body decode: stop at EXIT / backward branch / non-code cell
+\         {need: @ , signed compare (have: < > 0=)}
+
+\ === Driving the real fr (the hard half) ==================================
+\ [x] launch fr, single-step machine instructions, stop at `jmp *(%rax)`
+\ [x] read live regs (%rsi=IP, %rsp/%rbp stacks) + /proc/pid/mem
+\ [x] walk the live dictionary from var_latest; decode thread around %rsi-8
+\ [x] preserve last clean snapshot at the input-read pause (skip rsp junk)
+\         {need: ptrace + process control from fr — far off; likely needs
+\          new syscall-exposing primitives. May stay external indefinitely.}
+
+\ === The TUI (presentation) ===============================================
+\ [x] panels: THREAD, DATA, RETURN, DICTIONARY, OUTPUT, input, status/legend
+\ [x] Nord palette; exec colour coding (ip/stack/hop/exec); pulse on change
+\ [x] blinking IP marker; active cell = %rsi-8; executed cells dimmed
+\ [x] modes: edit (type Forth) / run (s step, a auto, +/- speed, r run, n new)
+\ [x] idle = fr parked in the QUIT loop; quit via `bye` / Esc / Ctrl-D
+\         {need: raw-tty input, ANSI escape output (emit strings + numbers),
+\          terminal size — all need char/string output + memory first}
+
+\ === Notes ================================================================
+\ Likely porting order once fr grows: model first (after @ ! + strings), then
+\ the TUI (after terminal I/O), and the ptrace backend last (or never — it may
+\ remain a host-language tool). Until then this file is the running scorecard.

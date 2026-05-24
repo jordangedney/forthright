@@ -62,10 +62,13 @@ Build and run (it's a REPL — reads Forth from stdin until EOF):
     echo '3 4 + 5 * .' | ./fr     # -> 35
     ./fr                          # or type at it interactively; Ctrl-D to quit
 
-Known words: `dup drop swap + - * . bye square` and `:` `;` for defining your own.
+Known words: `dup drop swap over + - * . negate = < > 0= bye square`, the
+control-flow words `if else then begin until`, and `:` `;` for defining your own.
 Numbers (incl. negatives) push themselves; unknown tokens echo back with `?`.
 
-    echo ': cube dup dup * * ;  4 cube .' | ./fr     # -> 64
+    echo ': cube dup dup * * ;  4 cube .'          | ./fr   # -> 64
+    echo ': abs dup 0 < if negate then ;  -5 abs .' | ./fr   # -> 5
+    echo ': countdown begin dup . 1 - dup 0 = until drop ;  5 countdown' | ./fr
 
 Engine conventions: `%rsi`=IP, `%rsp`=data stack, `%rbp`=return stack, `%rax`=W.
 `NEXT` is the inner interpreter; `docol`/`EXIT` drive the return stack. The outer
@@ -111,7 +114,12 @@ word's body; `exit` pops back. The Python engine is a deliberate superset of fr
 - [x] Dictionary (linked list, FIND by name) + outer interpreter / REPL:
       `_word` (tokenize stdin), `_find`, `_number`, `INTERPRET`, `QUIT` loop
 - [x] Compile mode: `:` `;` (immediate), `state`/`here`/`dict_space` — define
-      words at the prompt; the language now extends itself (~1.3 KB text)
-- [ ] More core words: `/ mod = < > 0= and or`, `@ !` (memory), `.s over rot`
-- [ ] Control flow words: `if else then`, `begin until` (needs 0branch)
-- [ ] anvil: external stack-effect verifier for generated words
+      words at the prompt; the language now extends itself
+- [x] Comparison/stack words: `= < > 0= over negate`
+- [x] Control flow: `0branch` + immediate `if else then` / `begin until` —
+      fr is now Turing-complete (~1.9 KB text)
+- [ ] More core words: `/ mod and or invert`, memory `@ ! c@ c! variable ,`
+- [ ] Parsing/strings exposed to Forth (`word`, char literals, string compare)
+- [ ] **anvil**, self-hosted: a stack-effect verifier written *in fr*. Building
+      fr up to where it can host it; `anvil-reference.py` is the Python spec of
+      the intended semantics (abstract stack simulation + declared-effect check).

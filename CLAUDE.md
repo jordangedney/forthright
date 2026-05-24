@@ -17,6 +17,15 @@ holds two pieces:
 Naming map: **forthright** (project) · **fr** (the Forth) · **ember** (the explorer) ·
 **anvil** (reserved name for the not-yet-built verifier).
 
+**File conventions.** Forth source uses the `.fr` extension (the kernel `fr.s` is GNU
+assembler). The project's direction is to **self-host its tooling in fr** once fr is capable
+enough, keeping the whole trust base small/auditable. Until then, host-language *reference
+specs* track the intended behavior, and **must be kept in sync as the host-language tools
+gain features**:
+- `anvil-reference.py` — Python spec for the future `anvil.fr` (stack-effect verifier).
+- `ember.fr` — a Forth-comment spec/TODO mirroring `ember`'s features. **When you add a
+  feature to the Python `ember`, add a matching line to `ember.fr`.**
+
 ## Commands
 
 ```sh
@@ -55,6 +64,14 @@ Forth*: the `QUIT` word is `INTERPRET ; BRANCH <back>` running forever — assem
 code interleave through `NEXT`. Compile mode uses `var_state`/`var_here`/`dict_space`: `:`
 (`code_COLON`) builds a header + `docol` codeword and enters compile mode; `;` is IMMEDIATE
 and compiles `EXIT` then leaves compile mode.
+
+**Control flow** (`if/else/then`, `begin/until`) is built the standard Forth way: they are
+IMMEDIATE words that run *during compilation*, emitting `BRANCH`/`ZBRANCH` (0branch) cells +
+a placeholder offset, and using the **data stack at compile time** to remember the slot
+addresses they later back-patch (offsets are relative to the offset cell, since `BRANCH`
+does `%rsi += *%rsi`). To add more control flow (`while/repeat`, `do/loop`), follow the same
+pattern. `ZBRANCH`/`BRANCH`/`LIT`/`EXIT` are headerless internal words (emitted by code, not
+typed), so they are not in the `FIND` chain.
 
 **Critical, non-obvious invariant — helper-routine calling convention:** because `%rsp` *is*
 the data stack, `_word`/`_find`/`_number`/`_refill` are reached with `call`/`ret` but **must

@@ -65,6 +65,17 @@ code_BRANCH:
 	add (%rsi), %rsi
 	NEXT
 
+ZBRANCH: .quad code_ZBRANCH		# ( flag -- )  IP += inline offset if flag is 0
+code_ZBRANCH:
+	pop %rax
+	test %rax, %rax
+	jz .zbranch_take
+	add $8, %rsi			# flag is true (nonzero): skip the offset cell
+	NEXT
+.zbranch_take:
+	add (%rsi), %rsi		# flag is false (zero): take the branch
+	NEXT
+
 # ===========================================================================
 # Dictionary. Each entry is packed (no alignment), so CFA = header + 9 + len:
 #       .quad link      (8 bytes: address of previous header, 0 terminates)
@@ -232,6 +243,155 @@ code_SEMI:
 	add $8, %r8
 	mov %r8, var_here
 	movq $0, var_state		# back to interpret mode
+	NEXT
+
+# ---------------------------------------------------------------------------
+# Stack + comparison primitives (Forth truth is -1 = all bits set, false = 0).
+
+h_OVER:	.quad h_SEMI
+	.byte 4
+	.ascii "over"
+OVER:	.quad code_OVER			# ( a b -- a b a )
+code_OVER:
+	mov 8(%rsp), %rax
+	push %rax
+	NEXT
+
+h_NEGATE: .quad h_OVER
+	.byte 6
+	.ascii "negate"
+NEGATE:	.quad code_NEGATE		# ( n -- -n )
+code_NEGATE:
+	negq (%rsp)
+	NEXT
+
+h_EQ:	.quad h_NEGATE
+	.byte 1
+	.ascii "="
+EQ:	.quad code_EQ			# ( a b -- flag )
+code_EQ:
+	pop %rax
+	pop %rdx
+	cmp %rax, %rdx
+	sete %al
+	movzbq %al, %rax
+	neg %rax
+	push %rax
+	NEXT
+
+h_LT:	.quad h_EQ
+	.byte 1
+	.ascii "<"
+LT:	.quad code_LT			# ( a b -- flag )  signed a < b
+code_LT:
+	pop %rax			# b
+	pop %rdx			# a
+	cmp %rax, %rdx			# sets flags for a - b
+	setl %al
+	movzbq %al, %rax
+	neg %rax
+	push %rax
+	NEXT
+
+h_GT:	.quad h_LT
+	.byte 1
+	.ascii ">"
+GT:	.quad code_GT			# ( a b -- flag )  signed a > b
+code_GT:
+	pop %rax
+	pop %rdx
+	cmp %rax, %rdx
+	setg %al
+	movzbq %al, %rax
+	neg %rax
+	push %rax
+	NEXT
+
+h_ZEQ:	.quad h_GT
+	.byte 2
+	.ascii "0="
+ZEQ:	.quad code_ZEQ			# ( n -- flag )
+code_ZEQ:
+	pop %rax
+	test %rax, %rax
+	setz %al
+	movzbq %al, %rax
+	neg %rax
+	push %rax
+	NEXT
+
+# ---------------------------------------------------------------------------
+# Control flow. These are IMMEDIATE: they run during compilation, emitting
+# branches and back-patching offsets, using the data stack to remember slots.
+# Compiled layout, e.g.  if T then  ->  <0branch off> <T> ;  off skips T when
+# the flag is false.  if T else E then  ->  <0branch o1> <T> <branch o2> <E> .
+
+h_IF:	.quad h_ZEQ
+	.byte 0x82			# IMMEDIATE | len 2
+	.ascii "if"
+IF:	.quad code_IF			# ( -- slot )
+code_IF:
+	mov var_here, %r8
+	movq $ZBRANCH, (%r8)		# compile 0branch
+	add $8, %r8
+	push %r8			# leave the offset slot to patch later
+	movq $0, (%r8)			# placeholder offset
+	add $8, %r8
+	mov %r8, var_here
+	NEXT
+
+h_ELSE:	.quad h_IF
+	.byte 0x84			# IMMEDIATE | len 4
+	.ascii "else"
+ELSE:	.quad code_ELSE			# ( slot -- slot' )
+code_ELSE:
+	pop %r10			# the if's 0branch slot
+	mov var_here, %r8
+	movq $BRANCH, (%r8)		# compile branch to jump over the else-part
+	add $8, %r8
+	push %r8			# leave this branch's slot for `then`
+	movq $0, (%r8)
+	add $8, %r8
+	mov %r8, var_here		# here = start of the else-part
+	mov var_here, %rax		# patch the if's 0branch to land here
+	sub %r10, %rax
+	mov %rax, (%r10)
+	NEXT
+
+h_THEN:	.quad h_ELSE
+	.byte 0x84			# IMMEDIATE | len 4
+	.ascii "then"
+THEN:	.quad code_THEN			# ( slot -- )
+code_THEN:
+	pop %r8
+	mov var_here, %rax
+	sub %r8, %rax			# offset = here - slot
+	mov %rax, (%r8)
+	NEXT
+
+h_BEGIN: .quad h_THEN
+	.byte 0x85			# IMMEDIATE | len 5
+	.ascii "begin"
+BEGIN:	.quad code_BEGIN		# ( -- dest )
+code_BEGIN:
+	mov var_here, %r8
+	push %r8			# loop-back target
+	NEXT
+
+h_UNTIL: .quad h_BEGIN
+	.byte 0x85			# IMMEDIATE | len 5
+	.ascii "until"
+UNTIL:	.quad code_UNTIL		# ( dest -- )  compile 0branch back to dest
+code_UNTIL:
+	pop %r10			# dest from `begin`
+	mov var_here, %r8
+	movq $ZBRANCH, (%r8)
+	add $8, %r8
+	mov %r10, %rax
+	sub %r8, %rax			# offset = dest - slot (negative: jump back)
+	mov %rax, (%r8)
+	add $8, %r8
+	mov %r8, var_here
 	NEXT
 
 # ===========================================================================
@@ -452,7 +612,7 @@ errmsg:	.ascii " ?\n"
 	.equ errmsg_len, . - errmsg
 
 	.data
-var_latest: .quad h_SEMI		# newest dictionary entry (head of FIND)
+var_latest: .quad h_UNTIL		# newest dictionary entry (head of FIND)
 var_state:  .quad 0			# 0 = interpret, 1 = compile
 var_here:   .quad dict_space		# next free byte for new definitions
 inbuf_len:  .quad 0			# valid bytes currently in inbuf
