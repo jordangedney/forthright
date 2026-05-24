@@ -201,3 +201,4 @@ variable kcfa  variable bp2           \ check-body: cfa key, body pointer
 1 1 prim negate   1 1 prim 1+       1 1 prim 1-       2 1 prim and
 2 1 prim or       2 1 prim =        2 1 prim <        2 1 prim >
 1 1 prim 0=       1 0 prim .        1 1 prim square
+2 1 prim /        2 1 prim mod

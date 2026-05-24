@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **New here / no prior context?** Read `GUIDE.md` first — it teaches the fr language and
+> the whole project from scratch (word reference, how to read/write/extend fr, how to
+> verify changes, a worked example). This file is the terse cheatsheet.
+
 ## What this is
 
 **forthright** is an experiment toward an "AI writes it, a verifier checks it, ship tiny
