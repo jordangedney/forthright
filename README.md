@@ -65,6 +65,7 @@ Build and run (it's a REPL — reads Forth from stdin until EOF):
 Known words: `dup drop swap over + - * . negate = < > 0= bye square`, memory words
 `@ ! c@ c! , here allot cells cell+ variable constant`, the control-flow words
 `if else then begin until`, parsing/IO `word find number s= char [char] emit type cr`,
+glue `exit 2dup 2drop nip rot 1+ 1- and or` + `begin while repeat`,
 and `:` `;` for defining your own.
 Numbers (incl. negatives) push themselves; unknown tokens echo back with `?`.
 
@@ -124,7 +125,8 @@ word's body; `exit` pops back. The Python engine is a deliberate superset of fr
       (shared `_create` header-builder; `dovar`/`doconst` runtimes)
 - [x] Parsing / strings / output: `word find number s= char [char] emit type cr`
       — the toolkit to read source, match names, and print a report (~2.8 KB text)
-- [ ] More arithmetic/logic: `/ mod and or invert` (add as anvil needs them)
+- [x] Glue for practical programming: `exit 2dup 2drop nip rot 1+ 1- and or`,
+      `begin while repeat` (~3.2 KB text)
 - [ ] **anvil.fr**, self-hosted: a stack-effect verifier written *in fr*. All the
       prerequisites now exist; `anvil-reference.py` is the Python spec of the
       semantics (abstract stack simulation + declared-effect check).

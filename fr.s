@@ -659,6 +659,119 @@ CR:	.quad docol			# ( -- )  emit a newline
 	.quad EMIT
 	.quad EXIT
 
+# ---------------------------------------------------------------------------
+# Glue — the standard stack/arith/loop words that make fr practical to program
+# in (needed to write anvil.fr without contortions).
+
+h_XEXIT: .quad h_CR
+	.byte 4
+	.ascii "exit"
+XEXIT:	.quad code_EXIT			# ( -- )  return early from a definition
+
+h_2DUP:	.quad h_XEXIT
+	.byte 4
+	.ascii "2dup"
+TWODUP:	.quad code_2DUP			# ( a b -- a b a b )
+code_2DUP:
+	mov 8(%rsp), %rax
+	mov (%rsp), %rdx
+	push %rax
+	push %rdx
+	NEXT
+
+h_2DROP: .quad h_2DUP
+	.byte 5
+	.ascii "2drop"
+TWODROP: .quad code_2DROP		# ( a b -- )
+code_2DROP:
+	add $16, %rsp
+	NEXT
+
+h_NIP:	.quad h_2DROP
+	.byte 3
+	.ascii "nip"
+NIP:	.quad code_NIP			# ( a b -- b )
+code_NIP:
+	pop %rax
+	add $8, %rsp
+	push %rax
+	NEXT
+
+h_ROT:	.quad h_NIP
+	.byte 3
+	.ascii "rot"
+ROT:	.quad code_ROT			# ( a b c -- b c a )
+code_ROT:
+	mov 16(%rsp), %rax		# a
+	mov 8(%rsp), %rdx		# b
+	mov (%rsp), %rcx		# c
+	mov %rdx, 16(%rsp)
+	mov %rcx, 8(%rsp)
+	mov %rax, (%rsp)
+	NEXT
+
+h_ONEPLUS: .quad h_ROT
+	.byte 2
+	.ascii "1+"
+ONEPLUS: .quad code_ONEPLUS		# ( n -- n+1 )
+code_ONEPLUS:
+	addq $1, (%rsp)
+	NEXT
+
+h_ONEMINUS: .quad h_ONEPLUS
+	.byte 2
+	.ascii "1-"
+ONEMINUS: .quad code_ONEMINUS		# ( n -- n-1 )
+code_ONEMINUS:
+	subq $1, (%rsp)
+	NEXT
+
+h_AND:	.quad h_ONEMINUS
+	.byte 3
+	.ascii "and"
+AND:	.quad code_AND			# ( a b -- a&b )  bitwise
+code_AND:
+	pop %rax
+	and %rax, (%rsp)
+	NEXT
+
+h_OR:	.quad h_AND
+	.byte 2
+	.ascii "or"
+OR:	.quad code_OR			# ( a b -- a|b )  bitwise
+code_OR:
+	pop %rax
+	or %rax, (%rsp)
+	NEXT
+
+# while/repeat — mid-test loops. `while` is identical to `if` (compile 0branch +
+# slot); `repeat` compiles a branch back to the `begin` target and patches the
+# `while` 0branch to land just past it.  begin <test> while <body> repeat
+h_WHILE: .quad h_OR
+	.byte 0x85			# IMMEDIATE | len 5
+	.ascii "while"
+WHILE:	.quad code_IF			# ( dest -- dest slot )  reuses the if logic
+
+h_REPEAT: .quad h_WHILE
+	.byte 0x86			# IMMEDIATE | len 6
+	.ascii "repeat"
+REPEAT:	.quad code_REPEAT		# ( dest slot -- )
+code_REPEAT:
+	pop %r10			# slot (the while's 0branch)
+	pop %r9				# dest (the begin target)
+	mov var_here, %r8
+	movq $BRANCH, (%r8)		# compile branch back to dest
+	add $8, %r8
+	mov %r9, %rax
+	sub %r8, %rax			# offset = dest - branch slot
+	mov %rax, (%r8)
+	add $8, %r8
+	mov %r8, var_here		# here = the loop's exit point
+	mov var_here, %rax		# patch the while's 0branch to land here
+	sub %r10, %rax
+	mov %rax, (%r10)
+	NEXT
+
 # ===========================================================================
 # Outer interpreter helpers (register-passing; never touch the data stack).
 
@@ -901,7 +1014,7 @@ errmsg:	.ascii " ?\n"
 	.equ errmsg_len, . - errmsg
 
 	.data
-var_latest: .quad h_CR			# newest dictionary entry (head of FIND)
+var_latest: .quad h_REPEAT		# newest dictionary entry (head of FIND)
 var_state:  .quad 0			# 0 = interpret, 1 = compile
 var_here:   .quad dict_space		# next free byte for new definitions
 inbuf_len:  .quad 0			# valid bytes currently in inbuf
