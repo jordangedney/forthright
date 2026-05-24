@@ -13,6 +13,9 @@ holds two pieces:
 - **`ember`** — a Python/curses TUI that single-steps the engine and visualizes it. By
   default it drives the *real* `fr` binary under `ptrace`; `--python` uses an equivalent
   pure-Python model.
+- **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted): infers a
+  phrase's `( in -- out )` by abstract stack simulation and flags unknown words. It is the
+  project's reason for existing; `anvil-reference.py` is its Python spec.
 
 Naming map: **forthright** (project) · **fr** (the Forth) · **ember** (the explorer) ·
 **anvil** (reserved name for the not-yet-built verifier).
@@ -32,6 +35,7 @@ gain features**:
 ./build.sh                 # assemble + link fr  (as --gstabs ; ld) -> ./fr
 echo '3 4 + 5 * .' | ./fr  # fr is a REPL: reads Forth from stdin until EOF
 ./fr                       # interactive; Ctrl-D / `bye` to quit
+( cat anvil.fr; echo 'check{ dup dup * * }' ) | ./fr   # self-hosted verifier -> in 1 / out 1
 
 ./ember                    # TUI driving the real ./fr via ptrace (Linux; needs ~76x20)
 ./ember --python           # TUI on the pure-Python model instead

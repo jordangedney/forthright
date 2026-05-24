@@ -1,0 +1,91 @@
+\ anvil.fr — a stack-effect verifier, written in fr (self-hosted).
+\
+\ The project thesis made literal: the error-correcting redundancy Forth lacks,
+\ supplied OUTSIDE the shipped artifact — and small enough to audit, because it
+\ is itself a few dozen lines of the same minimal Forth.
+\
+\ Load it into fr, then check a straight-line phrase:
+\     ( cat anvil.fr; echo 'check{ dup dup * * }' ) | ./fr
+\ prints the inferred stack effect:   in 1 / out 1   (i.e. ( n -- n ) ).
+\
+\ How it works: an effect table maps a word's CFA -> (consumes, produces).
+\ check{ reads tokens until `}`, classifies each (number / known / unknown),
+\ and runs the abstract stack simulation from anvil-reference.py: track the
+\ running height and the lowest it dips; inputs = -low, outputs = inputs+height.
+\ Sound for straight-line code (all fr is, for now).
+
+\ --- effect table: a bump-allocated array of (cfa, cons, prod) triples -------
+variable tp                 \ table pointer (next free slot)
+variable tbase              \ table base
+here dup tbase ! tp !       \ tbase = tp = here
+8000 allot                  \ reserve the table region
+
+\ --- simulation state --------------------------------------------------------
+variable hgt                \ current stack height (relative to entry)
+variable lo                 \ lowest height reached (<= 0); -lo = inputs needed
+variable unk                \ count of unknown / no-effect words
+variable pp                 \ scratch (a word's "produces", inside apply)
+variable kcfa               \ search key (inside tlookup)
+variable fcons              \ found consumes
+variable fprod              \ found produces
+variable ffound             \ found flag
+variable tok-a              \ current token address
+variable tok-n              \ current token length
+
+: space ( -- )  32 emit ;
+: t.str ( -- addr len )  tok-a @ tok-n @ ;
+
+\ --- building the table ------------------------------------------------------
+: ,t ( x -- )  tp @ !  tp @ 8 + tp ! ;          \ append a cell, bump tp
+: prim ( cons prod -- )  word find ,t  swap ,t  ,t ;   \ name follows; store cfa,cons,prod
+
+\ --- the stack-effect simulation ---------------------------------------------
+: apply ( cons prod -- )    \ fold one word's effect into hgt / lo
+  pp !
+  hgt @ swap -  hgt !                           \ hgt -= cons
+  hgt @ lo @ <  if  hgt @ lo !  then            \ track the low-water mark
+  hgt @ pp @ +  hgt ! ;                         \ hgt += prod
+
+: tlookup ( cfa -- cons prod flag )             \ find a cfa's effect in the table
+  kcfa !  0 ffound !
+  tbase @
+  begin  dup tp @ <  while
+    dup @ kcfa @ =  if
+      dup 8 + @  fcons !
+      dup 16 + @ fprod !
+      -1 ffound !
+    then
+    24 +
+  repeat  drop
+  ffound @  if  fcons @ fprod @ -1  else  0 0 0  then ;
+
+: end? ( -- flag )  tok-n @ 1 =  tok-a @ c@ [char] } =  and ;
+
+: classify ( -- )           \ fold the current token into the simulation
+  t.str number  swap drop                       \ ( is-number? )
+  if  0 1 apply  exit  then                      \ a literal: ( -- n )
+  t.str find                                     \ ( cfa )
+  dup 0=  if  drop  unk @ 1+ unk !  exit  then    \ not in fr at all: unknown
+  tlookup  if  apply  else  2drop  unk @ 1+ unk !  then ;
+
+: report ( -- )
+  [char] i emit [char] n emit space  lo @ negate .
+  [char] o emit [char] u emit [char] t emit space  lo @ negate hgt @ + .
+  unk @  if  [char] ? emit space unk @ .  then ;
+
+: check{ ( -- )            \ check{ <words> }  -> print the inferred effect
+  0 hgt !  0 lo !  0 unk !
+  begin
+    word tok-n ! tok-a !
+    end? 0=
+  while
+    classify
+  repeat
+  report ;
+
+\ --- the primitive effect table ( consumes produces prim <name> ) ------------
+1 2 prim dup      1 0 prim drop     2 2 prim swap     2 3 prim over
+3 3 prim rot      2 1 prim +        2 1 prim -        2 1 prim *
+1 1 prim negate   1 1 prim 1+       1 1 prim 1-       2 1 prim and
+2 1 prim or       2 1 prim =        2 1 prim <        2 1 prim >
+1 1 prim 0=       1 0 prim .        1 1 prim square

@@ -772,6 +772,40 @@ code_REPEAT:
 	mov %rax, (%r10)
 	NEXT
 
+# \ and ( — comments, IMMEDIATE so they also work while compiling. `\` skips to
+# end of line; `(` skips to the next `)`. Both just advance the input cursor.
+h_BSLASH: .quad h_REPEAT
+	.byte 0x81			# IMMEDIATE | len 1
+	.ascii "\\"
+BSLASH:	.quad code_BSLASH		# ( -- )  skip rest of line
+code_BSLASH:
+.bslash_loop:
+	mov inbuf_pos, %rax
+	cmp inbuf_len, %rax
+	jae .bslash_done
+	movzbq inbuf(%rax), %rdx
+	incq inbuf_pos
+	cmp $10, %dl			# newline ends the comment
+	jne .bslash_loop
+.bslash_done:
+	NEXT
+
+h_PAREN: .quad h_BSLASH
+	.byte 0x81			# IMMEDIATE | len 1
+	.ascii "("
+PAREN:	.quad code_PAREN		# ( -- )  skip to the next ')'
+code_PAREN:
+.paren_loop:
+	mov inbuf_pos, %rax
+	cmp inbuf_len, %rax
+	jae .paren_done
+	movzbq inbuf(%rax), %rdx
+	incq inbuf_pos
+	cmp $41, %dl			# ')' ends the comment
+	jne .paren_loop
+.paren_done:
+	NEXT
+
 # ===========================================================================
 # Outer interpreter helpers (register-passing; never touch the data stack).
 
@@ -1014,7 +1048,7 @@ errmsg:	.ascii " ?\n"
 	.equ errmsg_len, . - errmsg
 
 	.data
-var_latest: .quad h_REPEAT		# newest dictionary entry (head of FIND)
+var_latest: .quad h_PAREN		# newest dictionary entry (head of FIND)
 var_state:  .quad 0			# 0 = interpret, 1 = compile
 var_here:   .quad dict_space		# next free byte for new definitions
 inbuf_len:  .quad 0			# valid bytes currently in inbuf

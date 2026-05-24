@@ -110,6 +110,21 @@ colon word pushes a frame onto `RETURN` (purple) and the panel switches to that
 word's body; `exit` pops back. The Python engine is a deliberate superset of fr
 (adds `over rot / mod = < > negate .s`) so there's more to poke at.
 
+## Verifying it: anvil.fr (self-hosted)
+
+`anvil.fr` is the payoff — a stack-effect verifier **written in fr**, so the whole
+trust chain (language + checker) stays small enough to audit. Load it and check a
+straight-line phrase:
+
+    ( cat anvil.fr; echo 'check{ dup dup * * }' ) | ./fr      # -> in 1 / out 1
+    ( cat anvil.fr; echo 'check{ over over < }'  ) | ./fr      # -> in 2 / out 3
+    ( cat anvil.fr; echo 'check{ bogus }'         ) | ./fr      # -> in 0 / out 0  ? 1
+
+It keeps a CFA→`(consumes,produces)` table (built with `prim`), and `check{ … }`
+reads tokens until `}`, classifies each (number / known word / unknown), and runs
+the abstract stack simulation (`hgt`/`lo`): inputs `= -lo`, outputs `= inputs+hgt`.
+`anvil-reference.py` is the Python spec it follows.
+
 ## Status
 
 - [x] Inner interpreter (ITC NEXT, docol/EXIT), data + return stacks
@@ -126,7 +141,10 @@ word's body; `exit` pops back. The Python engine is a deliberate superset of fr
 - [x] Parsing / strings / output: `word find number s= char [char] emit type cr`
       — the toolkit to read source, match names, and print a report (~2.8 KB text)
 - [x] Glue for practical programming: `exit 2dup 2drop nip rot 1+ 1- and or`,
-      `begin while repeat` (~3.2 KB text)
-- [ ] **anvil.fr**, self-hosted: a stack-effect verifier written *in fr*. All the
-      prerequisites now exist; `anvil-reference.py` is the Python spec of the
-      semantics (abstract stack simulation + declared-effect check).
+      `begin while repeat`; comments `\` and `(` (~3.3 KB text)
+- [x] **anvil.fr**, self-hosted: a stack-effect verifier written *in fr* (~50
+      lines). Infers a phrase's `( in -- out )` by abstract stack simulation and
+      flags unknown words. The thesis made literal — the redundancy Forth lacks,
+      in a trust base small enough to audit. (`anvil-reference.py` = Python spec.)
+- [ ] anvil.fr next: parse `: … ;` to register inferred effects, and check them
+      against a declared `( … -- … )` comment (mismatch = bug caught)
