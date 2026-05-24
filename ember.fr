@@ -16,10 +16,14 @@
 \ live stack, printing it each step (ember's step view, no ptrace/curses).
 \ UPDATE 2: the input gate is open — the kernel now has `syscall3 ( a1 a2 a3 n --
 \ ret )`, a raw Linux syscall (read/write/ioctl all fit in 3 args). prelude.fr
-\ adds `key` (read one byte). So raw-tty (ioctl TCGETS/TCSETS to drop ICANON|ECHO)
-\ and ANSI output (u./.n/emit/type) are both reachable now; what remains for a
-\ full self-hosted ember is writing the TUI itself in fr (termios setup, the panel
-\ layout, the cursor-positioning escapes, the keypress loop).
+\ adds `key` (read one byte).
+\ UPDATE 3: term.fr now provides the terminal substrate in fr — `clear at fg/bg`
+\ (ANSI), `raw-on/raw-off` (cbreak via ioctl, pty-validated), `term-size`. So the
+\ model (see/trace), input (key/raw-on), and output (term.fr) sides are ALL self-
+\ hosted now. What's left for a full self-hosted ember is purely the TUI itself in
+\ fr: the panel layout drawn with at/fg, and the keypress event loop (key -> step/
+\ run/edit), reusing see's decode + trace's stepping. A redraw should buffer escapes
+\ into one `type` (term.fr emits byte-by-byte today — see its header note).
 \
 \ === The model (the easy half — mostly arithmetic + memory) ===============
 \ [x] data stack + return stack mirrors of fr's two stacks   {need: @ ! arrays}

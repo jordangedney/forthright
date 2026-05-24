@@ -80,11 +80,13 @@ assembly is a throwaway bootstrap.
   own NEXT/docol/primitives — true self-hosting, where the `.s` file is a seed you
   could regenerate. Hard, beautiful, and the natural terminus of "everything in fr."
 - A generic **`syscall` primitive** — **DONE.** `syscall3 ( a1 a2 a3 n -- ret )` is
-  in the kernel; the prelude adds `key`. That gives raw-tty (`ioctl` TCGETS/TCSETS),
-  terminal size (`TIOCGWINSZ`), `mmap`, etc. The remaining work for a self-hosted
-  `ember` is writing the **TUI itself in fr** — termios raw-mode setup, the ANSI
-  cursor/colour escapes, the panel layout, and the keypress loop (`key` + `see`'s
-  decode + `trace`'s stepping are the pieces). That's the next concrete arc-C step.
+  in the kernel; the prelude adds `key`. **`term.fr` — DONE too:** ANSI output
+  (`clear at fg bg`) and termios cbreak via `ioctl` (`raw-on`/`raw-off`, pty-validated)
+  + `term-size`. So model (`see`/`trace`), input (`key`), and output (`term.fr`) are
+  all self-hosted. **The remaining arc-C step is the TUI loop itself in fr:** draw the
+  panels with `at`/`fg`, and an event loop (`key` → step/run/edit) reusing `see`'s
+  decode and `trace`'s stepping. One known refinement first: buffer a redraw into a
+  single `type` instead of `term.fr`'s current byte-at-a-time `emit` (flicker).
 
 ## Cross-cutting: the corpus
 

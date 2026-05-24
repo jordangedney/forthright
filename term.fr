@@ -1,0 +1,74 @@
+\ term.fr — terminal control for fr, written in fr. The substrate a self-hosted
+\ ember needs: ANSI escape output (cursor, colour, clear) and termios raw mode via
+\ the kernel's `syscall3` (ioctl). Load order mirrors the rest of the tooling:
+\
+\     ( cat prelude.fr term.fr yourtui.fr ) | ./fr
+\
+\ Depends on prelude.fr (u. invert 1+ ...). Together with `key` (prelude), `see`
+\ and `trace` (prelude), this is everything the introspection + I/O sides of an
+\ fr-native ember need; what's left is the TUI layout/loop itself.
+\
+\ NOTE: every escape is emitted byte-by-byte through `emit`/`u.`, i.e. one write(2)
+\ per byte. Correct but flickery; a redraw should buffer into a string and `type`
+\ it in one syscall. That buffering is a deliberate later optimization (see ROADMAP).
+
+\ --- ANSI escape sequences ---------------------------------------------------
+\ CSI = ESC '[' . All sequences are ESC '[' <params> <final-byte>.
+: esc  ( -- )   27 emit ;
+: csi  ( -- )   esc [char] [ emit ;
+
+: clear ( -- )  csi [char] 2 emit [char] J emit  csi [char] H emit ;  \ wipe + home
+: home  ( -- )  csi [char] H emit ;                                   \ cursor to 1,1
+: at    ( row col -- )                  \ position the cursor (1-based row, col)
+  csi swap u. [char] ; emit u. [char] H emit ;
+
+\ SGR (Select Graphic Rendition): colours and styles. 0=reset, 1=bold,
+\ 30..37 = foreground, 40..47 = background, +60 for the bright variants.
+: sgr   ( n -- )   csi u. [char] m emit ;
+: reset ( -- )     0 sgr ;
+: bold  ( -- )     1 sgr ;
+: fg    ( n -- )   30 + sgr ;           \ e.g.  3 fg  -> yellow text
+: bg    ( n -- )   40 + sgr ;
+
+: hide-cursor ( -- )  csi [char] ? emit [char] 2 emit [char] 5 emit [char] l emit ;
+: show-cursor ( -- )  csi [char] ? emit [char] 2 emit [char] 5 emit [char] h emit ;
+
+\ --- termios raw mode, via ioctl(2) ------------------------------------------
+\ ioctl is syscall 16: ioctl(fd, request, argp). The kernel `struct termios` for
+\ TCGETS/TCSETS is 36 bytes; we over-allocate. We toggle cbreak mode — clear
+\ ICANON (line buffering) and ECHO in c_lflag (offset 12) — so `key` returns each
+\ keystroke immediately and silently. (Not full raw: we leave signals/CR mapping
+\ alone, which is what a key-driven TUI actually wants.)
+16    constant SYS_ioctl
+21505 constant TCGETS         \ 0x5401  — read current termios
+21506 constant TCSETS         \ 0x5402  — set termios now
+21523 constant TIOCGWINSZ     \ 0x5413  — get window size
+10    constant ICANON|ECHO    \ ICANON (2) | ECHO (8) — both live in c_lflag's low bits
+
+variable termbuf  56 allot    \ working termios struct (need 36; pad to be safe)
+variable saved-lflag          \ original c_lflag, to restore exactly on raw-off
+
+: tcget ( -- )   0 TCGETS termbuf SYS_ioctl syscall3 drop ;
+: tcset ( -- )   0 TCSETS termbuf SYS_ioctl syscall3 drop ;
+: lflag ( -- a ) termbuf 12 + ;   \ address of the c_lflag cell within termbuf
+
+: raw-on ( -- )                 \ enter cbreak mode (save the original first)
+  tcget
+  lflag @  saved-lflag !
+  lflag  saved-lflag @  ICANON|ECHO invert and  swap !
+  tcset ;
+: raw-off ( -- )                \ restore the terminal exactly as we found it
+  tcget
+  lflag  saved-lflag @  swap !
+  tcset ;
+
+\ window size: struct winsize is { u16 rows, u16 cols, ... }; little-endian.
+variable winbuf  8 allot
+: u16@ ( a -- n )   dup c@  swap 1+ c@  256 * + ;   \ read a little-endian 2-byte field
+: term-size ( -- rows cols )
+  0 TIOCGWINSZ winbuf SYS_ioctl syscall3 drop
+  winbuf u16@   winbuf 2 + u16@ ;
+
+\ --- a tiny composition demo (proves the pieces fit together) ----------------
+\ paint: position the cursor, set a foreground colour, in one word.
+: paint ( row col colour -- )   >r at r> fg ;

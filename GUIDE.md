@@ -24,6 +24,7 @@ and **forges** its own verified code.
 | `prelude.fr` | fr's standard library — everything derivable, written *in fr* |
 | `anvil.fr` | a stack-effect **verifier**, written *in fr* |
 | `forge.fr` | generate→check→repair loop, written *in fr* (synthesizes verified words) |
+| `term.fr` | terminal control *in fr*: ANSI escapes + termios raw mode (the TUI substrate) |
 | `ember` | a Python/curses TUI that `ptrace`s the real `fr` and animates it |
 | `build.sh` | `as` + `ld` → `fr` |
 | `anvil-reference.py`, `forge-reference.py` | Python specs for the fr versions |
@@ -115,6 +116,14 @@ after them (`\ note`, `( note )`) — they are parsed as words.
 | reflection | `' (-cfa)` tick: next word's CFA · `see` disassemble next word · `.cfaname (cfa-)` · constants `'docol 'lit 'exit 'branch '0branch` |
 | stack tools | `depth (-n)` · `.s` print the stack (non-destructive) · `trace` step a word on the live stack, printing each step (the self-hosted analog of ember's step view; straight-line + literals only) |
 | demo | `square` |
+
+**Terminal control** (`term.fr`, written in fr; load after the prelude — `cat prelude.fr term.fr …`):
+
+| group | words |
+|---|---|
+| ANSI output | `clear` wipe+home · `home` · `at (row col -)` position cursor (1-based) · `sgr (n-)` raw SGR code · `fg (n-)`/`bg (n-)` colour (0–7) · `bold` · `reset` · `hide-cursor`/`show-cursor` |
+| raw input | `raw-on`/`raw-off` enter/leave cbreak (clear `ICANON|ECHO` via ioctl) · `term-size (- rows cols)` · pair with prelude's `key (-c)` |
+| compose | `paint (row col colour -)` = `at` + `fg` |
 
 Try `see`: `( cat prelude.fr; echo 'see square' ) | ./fr` → `dup * ;`. It walks the
 dictionary and the `sys` table to print any word's threaded body.

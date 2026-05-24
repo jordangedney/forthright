@@ -78,6 +78,19 @@ the Forth IP — so arg2 is parked in `%r8` and `%rsi` saved across the call. A 
 form (for `mmap`) is a straightforward extension if ever needed. This is a sharp
 edge: a wrong syscall number does a *real* syscall — fr no longer fails safe.
 
+### term.fr uses cbreak (not full raw) and emits byte-at-a-time
+The fr terminal layer clears only `ICANON|ECHO` in `c_lflag` — *cbreak*, not full
+raw mode. **Why:** a key-driven explorer wants unbuffered, un-echoed keystrokes but
+is happy to keep signals (Ctrl-C) and output post-processing; clearing two bits in
+one `c_lflag` cell is also far simpler than zeroing the whole struct + setting
+VMIN/VTIME. It reads/writes the 8-byte cell at offset 12 (which spans `c_lflag` +
+`c_line` + a few `c_cc` bytes) and only flips bits in the low 32, so the rest round-
+trips untouched. **Output is one `write(2)` per byte** (every `emit`): correct but
+flickery — buffering a redraw into a single `type` is a deliberate later step
+(ROADMAP). **What's tested:** `test.sh` checks the ANSI escapes through a pipe; raw
+mode is validated once under a pty (a byte with no newline echoes immediately and
+exactly once → `ICANON` and `ECHO` are both off), since `ioctl` needs a real tty.
+
 ### ember's introspection is self-hosted; its ptrace backend stays in Python
 The *introspection* half (decode a definition, step a word) *is* self-hosted —
 `see`/`trace` (prelude) plus `syscall3`/`key` for raw-tty, so a fr-native

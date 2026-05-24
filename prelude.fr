@@ -27,6 +27,9 @@
 : >      ( a b -- f )  swap < ;
 : 0=     ( n -- f )    0 = ;
 
+\ --- bitwise -----------------------------------------------------------------
+: invert ( x -- ~x )   negate 1- ;   \ two's complement: ~x = -x - 1 (we have no xor)
+
 \ --- dictionary / parsing ----------------------------------------------------
 : ,      ( x -- )   here !  8 allot ;       \ append a cell at HERE
 : char   ( -- c )   word drop c@ ;          \ code of the next token's first char

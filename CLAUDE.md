@@ -33,6 +33,11 @@ holds two pieces:
   the kernel's `sys` table (which exposes the headerless engine CFAs docol/lit/exit/
   branch/0branch). This is the fr-native analog of ember's introspection. `key ( -- c )`
   reads one byte from stdin via `syscall3` (the input primitive for a future fr-native TUI).
+- **`term.fr`** — terminal control written in fr, loaded after the prelude
+  (`cat prelude.fr term.fr …`). ANSI output (`clear at fg bg sgr bold reset
+  hide-cursor show-cursor`) and termios raw/cbreak mode via `ioctl` (`raw-on`/`raw-off`
+  clear `ICANON|ECHO`; `term-size` reads `TIOCGWINSZ`). With `key` + `see` + `trace`,
+  this is the full substrate for an interactive ember in fr — only the TUI loop is left.
 - **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted), built on the
   prelude. `check{ … }`
   infers a phrase's `( in -- out )` by abstract stack simulation; `def name ( decl ) body ;`
