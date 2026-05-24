@@ -115,8 +115,12 @@ variable saved-lflag          \ original c_lflag, to restore exactly on raw-off
 \ blocking — that timeout is what drives ember's autoplay frame clock.
 : vtime! ( n -- )  termbuf 22 + c! ;
 : vmin!  ( n -- )  termbuf 23 + c! ;
+: vtime@ ( -- n )  termbuf 22 + c@ ;
+: vmin@  ( -- n )  termbuf 23 + c@ ;
 : raw-timed ( tenths -- )  tcget  0 vmin!  vtime!  tcset ;    \ key times out after `tenths`
 : raw-poll  ( -- )         tcget  1 vmin!  0 vtime!  tcset ;  \ back to blocking 1-byte reads
+: raw-save    ( -- vmin vtime )    tcget  vmin@ vtime@ ;      \ snapshot the read mode …
+: raw-restore ( vmin vtime -- )    tcget  vtime! vmin! tcset ; \ … and put it back (composes)
 
 \ window size: struct winsize is { u16 rows, u16 cols, ... }; little-endian.
 variable winbuf  8 allot

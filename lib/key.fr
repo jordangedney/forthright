@@ -11,7 +11,6 @@ include lib/term.fr
 260 constant KEY-HOME	261 constant KEY-END	262 constant KEY-PGUP	263 constant KEY-PGDN
 13  constant KEY-ENTER	27  constant KEY-ESC	127 constant KEY-BS	9 constant KEY-TAB
 
-variable kc
 : csi-final ( c -- key )		\ map the final byte of an ESC[ / ESC O sequence
   dup [char] A = if drop KEY-UP    exit then
   dup [char] B = if drop KEY-DOWN  exit then
@@ -20,10 +19,17 @@ variable kc
   dup [char] H = if drop KEY-HOME  exit then
   dup [char] F = if drop KEY-END   exit then
   drop KEY-ESC ;			\ unrecognised sequence -> treat as Esc
+\ getkey works under either read mode (blocking cbreak, or a timed poll the caller set
+\ for an animation loop): the first read uses the caller's mode (so it returns -1 on a
+\ timed-poll timeout), and the escape-sequence peek briefly switches to a short timeout
+\ then RESTORES the caller's mode — so a lone Esc never blocks and the caller's poll
+\ interval survives the call.
+variable gkr
 : getkey ( -- key )
-  key  dup KEY-ESC = 0= if  exit  then	\ ordinary byte (or EOF -1)
+  key  dup KEY-ESC = 0= if  exit  then		\ ordinary byte, or -1 on a timed timeout
   drop
-  1 raw-timed  key  raw-poll  kc !	\ peek the next byte (times out -> lone Esc)
-  kc @ 0< if  KEY-ESC exit  then
-  kc @ [char] [ =  kc @ [char] O =  or  0= if  kc @ exit  then	\ Esc + some other key
-  key csi-final ;			\ read + map the sequence's final byte
+  raw-save  1 raw-timed				\ ( vmin vtime ) saved; brief timeout for the peek
+  key  dup [char] [ =  over [char] O =  or if
+    drop  key csi-final  gkr !			\ ESC [ X  /  ESC O X  -> a named key
+  else  drop  KEY-ESC  gkr !  then		\ lone Esc (peek timed out) or ESC + other
+  raw-restore  gkr @ ;

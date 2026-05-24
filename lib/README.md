@@ -41,7 +41,7 @@ but `include` is the ergonomic way.)
 | `string.fr`  | addr/len strings | `count blank c, s, place` (`s=` is a kernel word) |
 | `fmt.fr`     | number→text, padding | `u>str u>hex u.r .r .x type-pad` |
 | `term.fr`    | ANSI + termios (cbreak) | `at clear fg24 nord-* box raw-on raw-off raw-timed term-size reverse` |
-| `key.fr`     | decode keystrokes incl. escape sequences | `getkey KEY-UP/DOWN/LEFT/RIGHT/HOME/END/ENTER/ESC/BS/TAB` |
+| `key.fr`     | decode keystrokes incl. escape sequences (composes with a timed poll loop) | `getkey KEY-UP/DOWN/LEFT/RIGHT/HOME/END/ENTER/ESC/BS/TAB` |
 | `draw.fr`    | panels / rules / rects on term | `panel hline vline clear-rect at-type` |
 | `tui.fr`     | widgets | `label status-bar menu-draw menu-run accept` |
 | `time.fr`    | clock + sleep | `now-ms sleep-ms` |

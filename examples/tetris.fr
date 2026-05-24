@@ -118,17 +118,8 @@ variable score  variable gameover
   ROWS BT + 2 +  1 at ;				\ park the cursor below the board
 
 \ ===== input + the game loop =========================================
-: g-key ( -- key )				\ read in timed mode: -1 on timeout; decode arrows
-  key  dup 27 = if  drop			\ ESC — maybe an arrow sequence
-    key  [char] [ = if
-      key
-      dup [char] A = if drop KEY-UP    exit then
-      dup [char] B = if drop KEY-DOWN  exit then
-      dup [char] C = if drop KEY-RIGHT exit then
-      dup [char] D = if drop KEY-LEFT  exit then
-      drop -1
-    else  -1  then
-  then ;
+\ Input is the lib's `getkey` (arrows -> KEY-*): it composes with our timed poll, so it
+\ returns -1 when no key arrives within the interval (letting gravity tick).
 : handle ( key -- )
   dup KEY-LEFT  = over [char] h = or if  drop  0 -1 try-move drop  exit  then
   dup KEY-RIGHT = over [char] l = or if  drop  0  1 try-move drop  exit  then
@@ -144,7 +135,7 @@ variable last-ms
   1 raw-timed  now-ms last-ms !			\ ~100ms key timeout; gravity off the wall clock
   begin
     draw
-    g-key  dup -1 = if  drop  else  handle  then
+    getkey  dup -1 = if  drop  else  handle  then
     now-ms last-ms @ -  500 >= if  gravity  now-ms last-ms !  then
     gameover @
   until
