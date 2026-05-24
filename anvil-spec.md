@@ -41,8 +41,8 @@ does several things a bare Forth wouldn't until (maybe) crashing at runtime:
 The verdicts are: `ok` · `BAD ( … -- … )` (declared *arity* mismatch) · `? names` (unknown
 words) · `br!` (branch/loop arms disagree) · `ctl!` (unbalanced control structure) · `r!`
 (return stack unbalanced) · `ty!` (cell-kind error) · `/0!` (division by a literal zero) · `ex!`
-(early returns disagree). A word can earn several at once; `BAD` is reserved for the arity
-headline, the other verdicts explain everything else. It is **sound for the straight-line and structured code fr produces** (each
+(early returns disagree) · `dc!` (dead code after `exit`). A word can earn several at once;
+`BAD` is reserved for the arity headline, the other verdicts explain everything else. It is **sound for the straight-line and structured code fr produces** (each
 structured construct reduces to a height constraint; the kind layer is deliberately
 conservative — see below).
 
@@ -106,7 +106,9 @@ opener (`if`, `else`, `begin`, `while`, `do`) and the height at that point, so i
   must agree, else the word returns a different shape on different paths → `ex!`. So
   `dup 0< if negate exit then` is fine (both paths `( n -- n )`), but `dup 0= if exit then drop`
   is `ex!` (the guarded path leaves the value, the fall-through drops it). After an `exit` the
-  enclosing branch/loop height is restored, since that path has left.
+  enclosing branch/loop height is restored, since that path has left. Any code between an
+  `exit` and its closing `then`/`;` is unreachable → `dc!` (dead code), and it's skipped so it
+  can't skew the analysis.
 
 **Return stack:** a running depth counter, `>r` +1 and `r>` −1 (`r@` reads without popping);
 if it ever goes negative (`r>`/`r@` below the word's frame) or is nonzero at the end (a

@@ -82,6 +82,7 @@ check "anvil: inconsistent exit"   "$(echo 'def f ( n -- ) dup 0= if exit then d
 check "anvil: consistent exit ok"  "$(echo 'def f ( n -- n ) dup 0< if negate exit then ;' | ./fr anvil.fr)" "ok"
 check "anvil: strings + type"      "$(echo 'def g ( -- ) s" hi" type ;'              | ./fr anvil.fr)" "ok"
 check "anvil: [char] is a char"    "$(echo 'def c ( -- n ) [char] A ;'               | ./fr anvil.fr)" "ok"
+check "anvil: dead code after exit" "$(echo 'def f ( n -- n ) dup 0< if negate exit 9 then ;' | ./fr anvil.fr)" "dc!"
 check "forge: synthesizes dup *"   "$(echo forge | ./fr forge.fr)"                                    "dup *"
 
 # --all (or -a): also run the explorer suite, folding its result into the exit code.

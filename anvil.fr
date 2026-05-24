@@ -41,6 +41,8 @@ variable terr                     \ count of cell-kind (type) errors
 variable zerr                     \ count of division-by-literal-zero
 variable exiterr                  \ -1 if early `exit` effects disagree with the fall-through
 variable nexits  variable exit-in variable exit-out   \ early-return bookkeeping (first exit's effect)
+variable post-exit                \ -1 right after an `exit`, until a then/else/loop-closer
+variable deaderr                  \ -1 if code was found between an `exit` and its closer
 variable astk  320 cells allot    \ abstract cell KINDS, indexed by height (see ABASE below)
 here dup tbase ! tp !   8000 allot
 here dup nbase ! np !   8000 allot
@@ -234,7 +236,7 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
 : do-exit ( -- )
   nexits @ 0= if  cur-in exit-in !  cur-out exit-out !             \ first exit: remember its effect
   else  cur-in exit-in @ = 0=  cur-out exit-out @ = 0=  or  if  -1 exiterr !  then  then
-  nexits @ 1+ nexits !
+  nexits @ 1+ nexits !  -1 post-exit !          \ anything before the closer is now unreachable
   cs-empty? 0= if  csp @ 16 - @  hgt !  then ;  \ this path returned: restore the enclosing frame's
                                                 \ height so the pending branch/loop merge stays balanced
 
@@ -279,6 +281,11 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
 
 \ --- classify one token into the running simulation --------------------------
 : classify ( -- )
+  post-exit @ if                                  \ we're right after an `exit`…
+    then? else? or until? or while? or repeat? or loop? or
+    if  0 post-exit !                             \ a closer ends the dead region — resume normally
+    else  deaderr @ 0= if -1 deaderr ! then  exit  then  \ otherwise this token is unreachable; skip it
+  then
   if?     if  do-if      exit  then               \ control flow first
   else?   if  do-else    exit  then
   then?   if  do-then    exit  then
@@ -361,9 +368,10 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
 : .tyy  ( -- )  terr @  if  s" ty!"  type cr  then ;
 : .zero ( -- )  zerr @  if  s" /0!"  type cr  then ;
 : .ex   ( -- )  exiterr @ if  s" ex!"  type cr  then ;
-: .flags ( -- )  .unknowns  .imb  .ctl  .rerr  .tyy  .zero  .ex ;
+: .dc   ( -- )  deaderr @ if  s" dc!"  type cr  then ;
+: .flags ( -- )  .unknowns  .imb  .ctl  .rerr  .tyy  .zero  .ex  .dc ;
 : clean? ( -- f )  unk @ 0=  imb @ 0= and  cerr @ 0= and  rerr @ 0= and
-                   terr @ 0= and  zerr @ 0= and  exiterr @ 0= and ;
+                   terr @ 0= and  zerr @ 0= and  exiterr @ 0= and  deaderr @ 0= and ;
 
 : report ( -- )                                  \ for check{
   finalize
@@ -388,7 +396,7 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
 \ --- the two entry points ----------------------------------------------------
 : reset-sim ( -- )
   0 hgt !  0 lo !  0 unk !  0 imb !  0 cerr !  0 rerr !  0 rdep !  0 terr !  0 zerr !
-  0 exiterr !  0 nexits !
+  0 exiterr !  0 nexits !  0 post-exit !  0 deaderr !
   csbase @ csp !  unkbase @ unkp !  a-clear ;
 : check{ ( -- )           \ check{ <words> }
   reset-sim
