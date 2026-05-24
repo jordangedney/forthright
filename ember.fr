@@ -1,6 +1,7 @@
 include lib/prelude.fr			\ ember pulls in its own dependencies, so it
 include lib/term.fr			\ runs as just  ./fr ember.fr
 include lib/ptrace.fr
+include lib/math.fr			\ max min >= <= (used by measure / layout / scroll)
 
 \ ember.fr — the self-hosted explorer: a visual stepper driving the REAL fr engine
 \ under ptrace. It forks fr, runs a word in the child, and single-steps the child to
@@ -99,11 +100,6 @@ variable lsj  variable ldepth
     child @  sp0 lsj @ cells -  peekdata  .n space
     lsj @ 1+ lsj !
   repeat ;
-\ --- small value helpers -----------------------------------------------------
-: max ( a b -- n )  2dup < if swap then drop ;
-: min ( a b -- n )  2dup > if swap then drop ;
-: >=  ( a b -- f )  < 0= ;
-: <=  ( a b -- f )  > 0= ;
 
 \ Decode a threaded body one cell at a time (mirrors `see`): lit/branch/0branch
 \ each carry an inline operand in the following cell, so they advance two cells.
@@ -163,38 +159,24 @@ variable v-dictT variable v-dictH
 
 \ --- the dashboard: a full-screen, Nord-coloured, multi-panel layout ---------
 variable lquit
-: .ember ( -- ) [char] e emit [char] m emit [char] b emit [char] e emit [char] r emit ;
-: .code  ( -- ) [char] c emit [char] o emit [char] d emit [char] e emit ;
-: .out   ( -- ) [char] o emit [char] u emit [char] t emit ;
-: .data  ( -- ) [char] d emit [char] a emit [char] t emit [char] a emit ;
-: .call  ( -- ) [char] c emit [char] a emit [char] l emit [char] l emit ;
-: .dict  ( -- ) [char] d emit [char] i emit [char] c emit [char] t emit ;
-: .ended ( -- ) [char] e emit [char] x emit [char] i emit [char] t emit [char] e emit [char] d emit ;
-: .step  ( -- ) [char] s emit [char] t emit [char] e emit [char] p emit ;
-: .idle  ( -- ) [char] i emit [char] d emit [char] l emit [char] e emit ;
-: .ready ( -- ) [char] r emit [char] e emit [char] a emit [char] d emit [char] y emit ;
-: .okp   ( -- ) [char] o emit [char] k emit [char] > emit space ;       \ the input prompt
-: .stepk ( -- ) [char] s emit [char] = emit [char] s emit [char] t emit [char] e emit [char] p emit ;
-: .runk  ( -- ) [char] r emit [char] = emit [char] r emit [char] u emit [char] n emit ;
-: .editk ( -- ) [char] e emit [char] = emit [char] e emit [char] d emit [char] i emit [char] t emit ;
-: .quitk ( -- ) [char] q emit [char] = emit [char] q emit [char] u emit [char] i emit [char] t emit ;
-: .autok ( -- ) [char] a emit [char] = emit [char] a emit [char] u emit [char] t emit [char] o emit ;
+\ Panel titles, status words, and key-row legends are just `." …"` (the kernel's inline
+\ string literal — one write per label). These used to be per-char `emit` spelled-out
+\ words (`.code` etc.), from before fr had `s"`/`."`; inlining them is shorter, reads as
+\ the literal text, and coalesces each into a single write(2).
 : panel ( top left w h -- )  nord-dim box reset ;     \ bordered, blanked-interior box
 : .tname ( cfa -- )                                   \ name a CFA; the anon thread reads as (line)
-  dup anonbuf = if  drop
-    [char] ( emit [char] l emit [char] i emit [char] n emit [char] e emit [char] ) emit
-  else  .cfaname  then ;
+  dup anonbuf = if  drop  ." (line)"  else  .cfaname  then ;
 
 : draw-title ( -- )
   1 1 atclr
-  nord-frost bold .ember reset
+  nord-frost bold ." ember" reset
   etop @ if  space [char] : emit space  nord-cyan                  \ the target: the typed line…
     lblen @ 0 > if  lbuf lblen @ 32 min type  else  etop @ .tname  then  reset  then  \ …or its word
   space space  nord-dim [char] # emit  lsteps @ .n  reset
-  alive @ if       1 ecols @ 5 - at  nord-green  .step  reset
-  else eready @ if  1 ecols @ 3 - at  nord-green  [char] o emit [char] k emit  reset
-  else etop @ if   1 ecols @ 7 - at  nord-dim    .ended  reset      \ child byed/crashed
-  else             1 ecols @ 5 - at  nord-dim    .idle  reset
+  alive @ if       1 ecols @ 5 - at  nord-green  ." step"    reset
+  else eready @ if  1 ecols @ 3 - at  nord-green  ." ok"      reset
+  else etop @ if   1 ecols @ 7 - at  nord-dim    ." exited"  reset  \ child byed/crashed
+  else             1 ecols @ 5 - at  nord-dim    ." idle"    reset
   then then then ;
 
 \ THREAD / code panel — the current word's body, one cell per row: the live cell
@@ -247,7 +229,7 @@ variable ds-rows  variable ds-depth  variable ds-j  variable ds-row  variable ds
     ds-top @ ds-row @ +  rx @ 2 + at
     ds-row @ 0= if  nord-orange bold  pulse-s @ alive @ and if  reverse  then  else  nord-fg  then
     ds-j @ stack-val  .n
-    ds-row @ 0= if  space space [char] t emit [char] o emit [char] p emit  then
+    ds-row @ 0= if  space space ." top"  then
     reset
     ds-j @ 1- ds-j !  ds-row @ 1+ ds-row !
   repeat ;
@@ -345,9 +327,9 @@ variable lstarts  64 cells allot   variable nlines
   out-drain
   olen @ 0= if                            \ nothing printed yet: show a one-word status
     drop 3 at  nord-green
-    alive @ if  .step space lsteps @ .n
-    else eready @ if  [char] o emit [char] k emit
-    else etop @ if  .ended  else  .ready  then then then
+    alive @ if  ." step" space lsteps @ .n
+    else eready @ if  ." ok"
+    else etop @ if  ." exited"  else  ." ready"  then then then
     reset  exit
   then
   out-split  owrows !  owtop !
@@ -361,29 +343,29 @@ variable lstarts  64 cells allot   variable nlines
 
 : draw-input ( -- )
   erows @ 3 -  1  ecols @ 1 -  3  panel
-  erows @ 2 -  3 at  nord-green bold  .okp  reset ;
+  erows @ 2 -  3 at  nord-green bold  ." ok> "  reset ;
 
 : draw-status ( -- )
   erows @ 1 at  cleol
-  nord-dim space .stepk space space .autok space space .runk
-  space space .editk space space .quitk reset ;
+  nord-dim space ." s=step" space space ." a=auto" space space ." r=run"
+  space space ." e=edit" space space ." q=quit" reset ;
 
 : draw ( -- )
   measure  draw-title
   v-codeT @ 1 lw @ v-codeH @  panel
-  v-codeT @ 3 at  nord-cyan .code reset
+  v-codeT @ 3 at  nord-cyan ." code" reset
   v-codeT @ 1+  v-codeH @ 2 -  draw-thread
   v-outT @ 1 lw @ v-outH @  panel
-  v-outT @ 3 at  nord-green .out reset
+  v-outT @ 3 at  nord-green ." out" reset
   v-outT @ 1+  v-outH @ 2 -  draw-out
   v-dataT @ rx @ rw @ v-dataH @  panel
-  v-dataT @ rx @ 2 + at  nord-orange .data reset
+  v-dataT @ rx @ 2 + at  nord-orange ." data" reset
   v-dataT @ 1+  v-dataH @ 2 -  draw-stack
   v-retT @ rx @ rw @ v-retH @  panel
-  v-retT @ rx @ 2 + at  nord-purple .call reset
+  v-retT @ rx @ 2 + at  nord-purple ." call" reset
   v-retT @ 1+  v-retH @ 2 -  draw-frames
   v-dictT @ rx @ rw @ v-dictH @  panel
-  v-dictT @ rx @ 2 + at  nord-cyan .dict reset
+  v-dictT @ rx @ 2 + at  nord-cyan ." dict" reset
   v-dictT @ 1+  v-dictH @ 2 -  draw-dict
   draw-input  draw-status ;
 
