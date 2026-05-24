@@ -38,7 +38,8 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the
   reads one byte from stdin via `syscall3` (the input primitive the fr-native TUIs use).
 - **`term.fr`** — terminal control written in fr, loaded after the prelude
   (`cat prelude.fr term.fr …`). ANSI output (`clear at fg bg sgr bold reset
-  hide-cursor show-cursor`) and termios raw/cbreak mode via `ioctl` (`raw-on`/`raw-off`
+  hide-cursor show-cursor`; `cleol`/`atclr` for flicker-free in-place redraw; `fg24` +
+  a `nord-*` true-colour palette) and termios raw/cbreak mode via `ioctl` (`raw-on`/`raw-off`
   clear `ICANON|ECHO`; `term-size` reads `TIOCGWINSZ`). With `key` + `see` + `trace`,
   this is the full substrate for an interactive ember in fr.
 - **`ember.fr`** — the **self-hosted ember**: an interactive visual single-stepper written

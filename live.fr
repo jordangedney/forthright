@@ -61,17 +61,17 @@ variable lci
   lcur @ 0= if  exit  then                     \ not inside a word yet
   0 lci !
   begin  lci @ lcn @ <  while
-    lcstk lci @ cells + @  .cfaname  space [char] > emit space
+    nord-purple lcstk lci @ cells + @  .cfaname  reset  space [char] > emit space
     lci @ 1+ lci !
   repeat
-  1 sgr  lcur @ .cfaname  reset ;
+  nord-purple bold  lcur @ .cfaname  reset ;
 
 \ The code panel: the current word's body (lcur), highlighting the cell at the live IP
 \ (%rsi-8 — lodsq has advanced past the cell just dispatched). Decoded straight from the
 \ shared dictionary with `@`, skipping inline LIT/branch operands like `see`.
 variable ldp
 : ltok ( -- )
-  ldp @  r-rsi 8 -  = if  1 sgr 3 fg  then      \ highlight the live current cell
+  ldp @  r-rsi 8 -  = if  nord-yellow bold  then  \ highlight the live current cell
   ldp @ @
   dup 'exit    = if  drop [char] ; emit                                      ldp @ 8 +  ldp !
   else dup 'lit    = if  drop [char] # emit  ldp @ 8 + @ .n                  ldp @ 16 + ldp !
@@ -114,12 +114,12 @@ variable lquit
                 [char] = emit [char] s emit [char] t emit [char] e emit [char] p emit space space
                 [char] q emit [char] = emit [char] q emit [char] u emit [char] i emit [char] t emit ;
 : draw-live ( -- )                \ repaint in place — no full-screen wipe, no flicker
-  1 2 atclr  6 fg bold  .live  reset  space space [char] # emit  lsteps @ .n
-             space space  2 sgr .real reset
-  3 2 atclr  2 sgr .call reset  3 9 at  draw-call
-  5 2 atclr  2 sgr .code reset  5 9 at  alive @ if  draw-code  then
-  7 2 atclr  2 sgr .data reset  7 9 at  alive @ if  .lstack  else  2 sgr .ended reset  then
-  9 2 atclr  .keys ;
+  1 2 atclr  nord-cyan bold  .live  reset  space space  nord-dim [char] # emit  lsteps @ .n
+             space space  .real reset
+  3 2 atclr  nord-dim .call reset  3 9 at  draw-call
+  5 2 atclr  nord-dim .code reset  5 9 at  alive @ if  draw-code  then
+  7 2 atclr  nord-dim .data reset  7 9 at  alive @ if  nord-orange .lstack reset  else  nord-dim .ended reset  then
+  9 2 atclr  nord-dim .keys reset ;
 : live ( n cfa -- )                  \ usage:  <args> ' <word> live
   fork dup 0= if
     drop  traceme  getpid SIGSTOP kill  execute  bye

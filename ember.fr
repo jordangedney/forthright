@@ -107,9 +107,9 @@ variable cstk  64 cells allot     variable cn
 \ The thread panel walks the body like `see`, colouring each cell by position:
 \ executed (before ebp) faint, the next cell (at ebp) bold yellow, upcoming plain.
 : tok-colour ( -- )
-  dbp @ ebp @ = if  1 sgr 3 fg   exit then    \ current : bold yellow
-  dbp @ ebp @ < if  2 sgr        exit then    \ executed: faint
-  reset ;                                       \ upcoming: normal
+  dbp @ ebp @ = if  nord-yellow bold  exit then    \ current : Nord yellow, bold
+  dbp @ ebp @ < if  nord-dim          exit then    \ executed: muted
+  reset ;                                           \ upcoming: normal
 : draw-tok ( -- )                 \ decode + print the cell at dbp, advance dbp
   tok-colour
   dbp @ @
@@ -130,22 +130,23 @@ variable ci
 : draw-call ( -- )
   0 ci !
   begin  ci @ cn @ <  while
-    cstk ci @ cells + @  .cfaname  space [char] > emit space
+    nord-purple cstk ci @ cells + @  .cfaname  reset  space [char] > emit space
     ci @ 1+ ci !
   repeat
-  1 sgr  ecur @ .cfaname  reset ;     \ innermost (current) word, bold
+  nord-purple bold  ecur @ .cfaname  reset ;     \ innermost (current) word
 
 : draw-status ( -- )
-  edone @ if  2 sgr .done reset  else  .stepk  space space .runk  then
-  space space  .editk  space space  .quitk ;
+  nord-dim
+  edone @ if  .done  else  .stepk  space space .runk  then
+  space space  .editk  space space  .quitk  reset ;
 
 : draw ( -- )                     \ repaint in place (atclr clears each row's tail — no
                                   \ full-screen wipe, so no flicker; see `clear` once below)
-  1 2 atclr  6 fg bold  .ember  [char] : emit  space  ecfa @ .cfaname  reset
-             space space  [char] # emit  estepn @ .n
-  3 2 atclr  2 sgr .call reset    3 9 at  draw-call
-  5 2 atclr  2 sgr .code reset    5 9 at  draw-thread
-  7 2 atclr  2 sgr .data reset    7 9 at  .s
+  1 2 atclr  nord-cyan bold  .ember  [char] : emit  space  ecfa @ .cfaname  reset
+             space space  nord-dim [char] # emit  estepn @ .n  reset
+  3 2 atclr  nord-dim .call reset    3 9 at  draw-call
+  5 2 atclr  nord-dim .code reset    5 9 at  draw-thread
+  7 2 atclr  nord-dim .data reset    7 9 at  nord-orange .s reset
   9 2 atclr  draw-status ;
 
 \ --- live edit: type a line of Forth into the TUI --------------------------

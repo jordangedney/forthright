@@ -27,7 +27,7 @@ CD=": cd begin 1- dup 0= until ;"
 CUBE=": cube dup square * ;"
 
 check "ember.fr: frame has title"    "$( ( $LT; echo "5 ' square einit draw" ) | ./fr )"                 "ember: square"
-check "ember.fr: highlights cursor"  "$( ( $LT; echo "5 ' square einit draw" ) | ./fr )"                 "[33m"
+check "ember.fr: highlights cursor"  "$( ( $LT; echo "5 ' square einit draw" ) | ./fr )"                 "235;203;139"
 check "ember.fr: estep runs a word"  "$( ( $LT; echo "5 ' square einit estep .s" ) | ./fr )"             "5 5"
 check "ember.fr: estep pushes lit"   "$( ( $LT; echo ": addk 10 + ; 5 ' addk einit estep .s" ) | ./fr )" "5 10"
 check "ember.fr: erun reaches EXIT"  "$( ( $LT; echo "5 ' square einit erun edone @ ." ) | ./fr )"        "-1"

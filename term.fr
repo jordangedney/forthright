@@ -31,8 +31,22 @@
 : sgr   ( n -- )   csi u. [char] m emit ;
 : reset ( -- )     0 sgr ;
 : bold  ( -- )     1 sgr ;
-: fg    ( n -- )   30 + sgr ;           \ e.g.  3 fg  -> yellow text
+: fg    ( n -- )   30 + sgr ;           \ e.g.  3 fg  -> yellow text (basic 8-colour)
 : bg    ( n -- )   40 + sgr ;
+
+\ 24-bit colour and the Nord palette (https://nordtheme.com) — the look the project
+\ started from. ESC[38;2;r;g;b m sets a true-colour foreground; terminals without
+\ true-colour just ignore it. The explorers use these for their panels.
+: fg24 ( r g b -- )
+  csi [char] 3 emit [char] 8 emit [char] ; emit [char] 2 emit [char] ; emit
+  rot u. [char] ; emit  swap u. [char] ; emit  u. [char] m emit ;
+: nord-cyan   ( -- )  136 192 208 fg24 ;   \ #88C0D0 frost   — the current word / IP
+: nord-orange ( -- )  208 135 112 fg24 ;   \ #D08770 aurora  — the data stack
+: nord-yellow ( -- )  235 203 139 fg24 ;   \ #EBCB8B aurora  — the highlighted cell
+: nord-purple ( -- )  180 142 173 fg24 ;   \ #B48EAD aurora  — the call path
+: nord-green  ( -- )  163 190 140 fg24 ;   \ #A3BE8C aurora
+: nord-dim    ( -- )   97 110 136 fg24 ;   \ #616E88 muted   — panel labels
+: nord-fg     ( -- )  216 222 233 fg24 ;   \ #D8DEE9 snow    — normal text
 
 : hide-cursor ( -- )  csi [char] ? emit [char] 2 emit [char] 5 emit [char] l emit ;
 : show-cursor ( -- )  csi [char] ? emit [char] 2 emit [char] 5 emit [char] h emit ;

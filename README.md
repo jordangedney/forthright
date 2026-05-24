@@ -127,7 +127,8 @@ word's body; `exit` pops back. The Python engine is a deliberate superset of fr
 
 `ember.fr` is the same idea, **written in fr**: an interactive visual stepper that
 walks a word's threaded body on the live data stack, one cell per keypress, with the
-current cell highlighted and a live `data` panel. It's built entirely on fr — `see`/
+current cell highlighted and a live `data` panel — Nord-coloured (`term.fr` has
+true-colour `fg24`/`nord-*` words), matching the Python ember's look. It's built entirely on fr — `see`/
 `trace` for the model, `key`/`raw-on` (`ioctl` via the kernel's `syscall6`) for input,
 `term.fr` for ANSI output. It runs with **no Python at all**: the kernel loads the
 library from its file arguments, then the terminal is the REPL (so `raw-on` has a real
