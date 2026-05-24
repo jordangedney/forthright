@@ -78,6 +78,8 @@ check "anvil: knows variables"     "$(echo 'variable c  def b ( -- ) c @ 1+ c ! 
 check "anvil: division by zero"    "$(echo 'check{ 5 0 / }'                           | ./fr anvil.fr)" "/0!"
 check "anvil: output kind checked" "$(echo 'def f ( -- addr ) 5 ;'                    | ./fr anvil.fr)" "ty!"
 check "anvil: out-kind propagates" "$(echo 'variable v  def g ( -- ) v 2 * drop ;'    | ./fr anvil.fr)" "ty!"
+check "anvil: inconsistent exit"   "$(echo 'def f ( n -- ) dup 0= if exit then drop ;' | ./fr anvil.fr)" "ex!"
+check "anvil: consistent exit ok"  "$(echo 'def f ( n -- n ) dup 0< if negate exit then ;' | ./fr anvil.fr)" "ok"
 check "forge: synthesizes dup *"   "$(echo forge | ./fr forge.fr)"                                    "dup *"
 
 # --all (or -a): also run the explorer suite, folding its result into the exit code.

@@ -89,8 +89,9 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (the whole repo is Python-fr
   (unknown words, named) · `br!` (if/else/then arms disagree, or a loop body isn't
   stack-neutral) · `ctl!` (unbalanced control structure — `if` w/o `then`, &c.) · `r!`
   (return stack `>r`/`r>`/`r@` unbalanced) · `ty!` (cell-kind error) · `/0!` (division by a
-  literal zero). It checks `if/else/then`, `begin/until`, `begin/while/repeat`, counted
-  `do/loop`, *declared* recursion (the self-call assumes the decl), and **cell kinds** — a
+  literal zero) · `ex!` (early `exit`s leave different effects). It checks `if/else/then`,
+  `begin/until`, `begin/while/repeat`, counted `do/loop`, early `exit` consistency, *declared*
+  recursion (the self-call assumes the decl), and **cell kinds** — a
   conservative type layer (number/address/flag/unknown, riding on the height sim) where
   `@ ! c@ c!` need an address, `* / mod` reject address/flag operands, and `+` rejects
   address+address; kinds flow from literals, comparisons, kind-named decl inputs *and outputs*

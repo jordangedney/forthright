@@ -39,6 +39,8 @@ variable rerr                     \ -1 if the return stack didn't balance
 variable rdep                     \ running return-stack depth (>r +1, r> -1)
 variable terr                     \ count of cell-kind (type) errors
 variable zerr                     \ count of division-by-literal-zero
+variable exiterr                  \ -1 if early `exit` effects disagree with the fall-through
+variable nexits  variable exit-in variable exit-out   \ early-return bookkeeping (first exit's effect)
 variable astk  320 cells allot    \ abstract cell KINDS, indexed by height (see ABASE below)
 here dup tbase ! tp !   8000 allot
 here dup nbase ! np !   8000 allot
@@ -221,6 +223,16 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
   cs-pop K-DO = 0= if  c-bad exit then
   cs-pop hgt @ = 0= if  bad-branch then ;
 
+\ --- early return: every `exit` must leave the same effect as the final `;` ----------
+: cur-in  ( -- n )  lo @ negate ;
+: cur-out ( -- n )  lo @ negate hgt @ + ;
+: do-exit ( -- )
+  nexits @ 0= if  cur-in exit-in !  cur-out exit-out !             \ first exit: remember its effect
+  else  cur-in exit-in @ = 0=  cur-out exit-out @ = 0=  or  if  -1 exiterr !  then  then
+  nexits @ 1+ nexits !
+  cs-empty? 0= if  csp @ 16 - @  hgt !  then ;  \ this path returned: restore the enclosing frame's
+                                                \ height so the pending branch/loop merge stays balanced
+
 \ --- return-stack tracking (>r / r> / r@) ------------------------------------
 : r-push  ( -- )  rdep @ 1+ rdep ! ;
 : r-pop   ( -- )  rdep @ 1- dup rdep !  0 < if  -1 rerr !  then ;  \ r> below our frame
@@ -271,6 +283,7 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
   repeat? if  do-repeat  exit  then
   do?     if  do-do      exit  then
   loop?   if  do-loop    exit  then
+  s" exit" tok= if  do-exit  exit  then           \ early return
   s" >r" tok= if  1 0 apply  r-push   exit  then  \ return-stack words
   s" r>" tok= if  0 1 apply  r-pop    exit  then
   s" r@" tok= if  0 1 apply  r-fetch  exit  then
@@ -313,6 +326,8 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
   s" <=" tok= if 2 1 apply kflag  exit then
   s" >=" tok= if 2 1 apply kflag  exit then
   s" 0=" tok= if 1 1 apply kflag  exit then
+  s" 0<" tok= if 1 1 apply kflag  exit then
+  s" 0>" tok= if 1 1 apply kflag  exit then
   t.str tlookup                                   \ otherwise: a known word ( cons prod okind flag )
   if  >r apply  r>  dup K? = if drop else kset then  \ apply height, then set top to its out-kind
   else  2drop drop  t.str unk!  then ;             \ or unknown (record by name)
@@ -334,8 +349,10 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
 : .rerr ( -- )  rerr @  if  s" r!"   type cr  then ;
 : .tyy  ( -- )  terr @  if  s" ty!"  type cr  then ;
 : .zero ( -- )  zerr @  if  s" /0!"  type cr  then ;
-: .flags ( -- )  .unknowns  .imb  .ctl  .rerr  .tyy  .zero ;
-: clean? ( -- f )  unk @ 0=  imb @ 0= and  cerr @ 0= and  rerr @ 0= and  terr @ 0= and  zerr @ 0= and ;
+: .ex   ( -- )  exiterr @ if  s" ex!"  type cr  then ;
+: .flags ( -- )  .unknowns  .imb  .ctl  .rerr  .tyy  .zero  .ex ;
+: clean? ( -- f )  unk @ 0=  imb @ 0= and  cerr @ 0= and  rerr @ 0= and
+                   terr @ 0= and  zerr @ 0= and  exiterr @ 0= and ;
 
 : report ( -- )                                  \ for check{
   finalize
@@ -360,6 +377,7 @@ variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2
 \ --- the two entry points ----------------------------------------------------
 : reset-sim ( -- )
   0 hgt !  0 lo !  0 unk !  0 imb !  0 cerr !  0 rerr !  0 rdep !  0 terr !  0 zerr !
+  0 exiterr !  0 nexits !
   csbase @ csp !  unkbase @ unkp !  a-clear ;
 : check{ ( -- )           \ check{ <words> }
   reset-sim
@@ -398,6 +416,7 @@ variable dinkbuf 64 cells allot  variable dki    \ declared input kinds, in orde
   has-decl @ if  pre-register  then                \ recursion: declared self-effect
   begin  semi? 0=  while  classify  read-tok  repeat
   lo @ negate cons-i !  cons-i @ hgt @ + prod-i !  topk iok !   \ inferred top-output kind
+  nexits @ if  cons-i @ exit-in @ = 0=  prod-i @ exit-out @ = 0=  or  if -1 exiterr ! then  then
   has-decl @ if  finish-register                   \ keeps the declared out-kind for callers
   else  0 name-a @ name-n @ cons-i @ prod-i @ iok @ register  then  \ no decl: advertise inferred
   report-def ;
@@ -416,7 +435,7 @@ variable dinkbuf 64 cells allot  variable dki    \ declared input kinds, in orde
 2 1 prim lshift   2 1 prim rshift
 \ comparisons (all leave one flag)
 2 1 prim =        2 1 prim <        2 1 prim >        2 1 prim <=
-2 1 prim >=       1 1 prim 0=
+2 1 prim >=       1 1 prim 0=       1 1 prim 0<       1 1 prim 0>
 \ memory
 1 1 prim @        2 0 prim !        1 1 prim c@       2 0 prim c!
 1 0 prim ,        1 1 prim cells    1 1 prim cell+

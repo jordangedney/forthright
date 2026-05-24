@@ -32,15 +32,17 @@ does several things a bare Forth wouldn't until (maybe) crashing at runtime:
 9. **catch division by a literal zero** — `/` or `mod` with a literal-`0` divisor (verdict `/0!`);
 10. **know `variable`/`constant`** — declaring one registers its name (effect `( -- x )`), so a
     word that uses it is checked rather than flagged unknown — anvil works on *stateful* code;
-11. **support recursion** — a word given a declaration may call itself; the self-call is
+11. **check early returns** — every `exit` point must leave the same stack effect as the final
+    `;`, or the word's effect is path-dependent (verdict `ex!`);
+12. **support recursion** — a word given a declaration may call itself; the self-call is
     checked against the *declared* effect, then the inferred body is verified against the
     same declaration (the assumption is discharged).
 
 The verdicts are: `ok` · `BAD ( … -- … )` (declared *arity* mismatch) · `? names` (unknown
 words) · `br!` (branch/loop arms disagree) · `ctl!` (unbalanced control structure) · `r!`
-(return stack unbalanced) · `ty!` (cell-kind error) · `/0!` (division by a literal zero). A word
-can earn several at once; `BAD` is reserved for the arity headline, the other verdicts explain
-everything else. It is **sound for the straight-line and structured code fr produces** (each
+(return stack unbalanced) · `ty!` (cell-kind error) · `/0!` (division by a literal zero) · `ex!`
+(early returns disagree). A word can earn several at once; `BAD` is reserved for the arity
+headline, the other verdicts explain everything else. It is **sound for the straight-line and structured code fr produces** (each
 structured construct reduces to a height constraint; the kind layer is deliberately
 conservative — see below).
 
@@ -97,6 +99,11 @@ opener (`if`, `else`, `begin`, `while`, `do`) and the height at that point, so i
   height-neutral by `loop` → else `br!`.
 - At end of phrase, the control stack must be empty (every opener closed) → else `ctl!`. A
   closer with no matching opener (`then` alone) is also `ctl!`.
+- **`exit`** (early return) records the effect at that point; every `exit` and the final `;`
+  must agree, else the word returns a different shape on different paths → `ex!`. So
+  `dup 0< if negate exit then` is fine (both paths `( n -- n )`), but `dup 0= if exit then drop`
+  is `ex!` (the guarded path leaves the value, the fall-through drops it). After an `exit` the
+  enclosing branch/loop height is restored, since that path has left.
 
 **Return stack:** a running depth counter, `>r` +1 and `r>` −1 (`r@` reads without popping);
 if it ever goes negative (`r>`/`r@` below the word's frame) or is nonzero at the end (a
@@ -179,6 +186,8 @@ word self-visible inside its own definition.)
 | `def f ( -- addr ) 5 ;` | `ty!` — declares an address output, returns a number |
 | `variable v  def g ( -- ) v 2 * drop ;` | `ty!` — `v`'s address propagates; `* ` rejects it |
 | `def mkbuf ( -- addr ) here ;  def use mkbuf @ ;` | `ok` — the output kind flows to the caller |
+| `def f ( n -- ) dup 0= if exit then drop ;` | `ex!` — early return leaves a different effect |
+| `def abs ( n -- n ) dup 0< if negate exit then ;` | `ok` — both paths are `( n -- n )` |
 | `check{ dup }` | infers `( x -- yy )` — a phrase that needs 1, leaves 2 |
 
 ## The boundary (why forge exists)
