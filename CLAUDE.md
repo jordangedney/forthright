@@ -83,13 +83,17 @@ echo '3 4 + 5 * .' | ./fr  # fr is a REPL: reads Forth from stdin until EOF
 
 ./ember-fr "5 ' square ember"   # the SELF-HOSTED stepper: ember.fr under a pty (real tty)
 ./ember-fr --selftest           # headless pty check of ember.fr (scripts keystrokes)
-./test.sh                       # build everything + run all checks (the one-command answer)
+./test.sh                       # core suite: kernel/prelude/anvil/forge/term + reference specs
+./test-ember.sh                 # the explorer's own suite (ember model, ptrace, ember.fr/pty)
+./test.sh --all                 # both suites
 ```
 
-There is no test framework; `./test.sh` is the one-command answer (builds, then runs the
-kernel/prelude/anvil/forge/term/ember checks + the Python reference specs — expect
-`ALL CHECKS PASSED`). The `--selftest` modes are the individual assertions it calls. The
-native ember backend reads `fr`'s ELF symbol table, so **keep the binary unstripped**
+There is no test framework; `./test.sh` is the one-command answer for the **core**
+(kernel/prelude/anvil/forge/term + the Python reference specs — expect `ALL CHECKS PASSED`,
+~0.25s). The explorer has its own, costlier suite, **`./test-ember.sh`** (the Python model,
+the ptrace backend, ember.fr under a pty, plus fast pipe-driven ember.fr render/step checks);
+`./test.sh --all` runs both. The `--selftest` modes are the individual assertions these call.
+The native ember backend reads `fr`'s ELF symbol table, so **keep the binary unstripped**
 (`build.sh` already does).
 
 ## fr.s architecture (the Forth kernel)

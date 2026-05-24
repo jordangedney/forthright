@@ -231,23 +231,25 @@ The generator stands in for an AI; the point is that nothing is accepted unless
 
 ## 7. Verifying changes (always run after editing)
 
-**One command: `./test.sh`** — builds and runs every check below, printing
-PASS/FAIL (exit non-zero on any failure). Run it first; the individual commands
-below are for when you need to look closely at one. (`DECISIONS.md` records *why*
-the design is the way it is — read it before changing something that looks odd.)
+**One command: `./test.sh`** — builds and runs the core checks (kernel, prelude,
+anvil, forge, term, reference specs), printing PASS/FAIL (exit non-zero on any
+failure). The explorer is costlier to test, so it has its own suite, **`./test-ember.sh`**
+(the Python model, the ptrace backend, ember.fr under a pty, plus fast render/step
+checks); `./test.sh --all` runs both. Run these first; the individual commands below
+are for looking closely at one. (`DECISIONS.md` records *why* the design is the way it
+is — read it before changing something that looks odd.)
 
 ```sh
 ./build.sh                                   # must assemble + link cleanly
 echo '5 square .' | ./fr                      # (kernel-only smoke test, e.g. dup *)
-./ember --selftest                            # Python model of the engine
-./ember --native-selftest                     # drives the REAL ./fr under ptrace
+./test-ember.sh                               # explorer: Python model + ptrace + ember.fr
 ( cat prelude.fr anvil.fr; echo 'def bad ( a b -- c ) + + ;' ) | ./fr   # -> BAD
 ( cat prelude.fr anvil.fr forge.fr; echo forge ) | ./fr                 # -> forges dup *
 python3 anvil-reference.py --selftest         # the Python spec still agrees
 ```
-If you change `fr.s`, the ember `--native-selftest` is the best end-to-end check
-(it defines words and reads the live dictionary out of the real process). `ember`
-reads the binary's symbols, so **keep `fr` unstripped** (`build.sh` does).
+If you change `fr.s`, the ember `--native-selftest` (in `test-ember.sh`) is the best
+end-to-end check (it defines words and reads the live dictionary out of the real
+process). `ember` reads the binary's symbols, so **keep `fr` unstripped** (`build.sh` does).
 
 ---
 

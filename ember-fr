@@ -9,7 +9,7 @@ the TUI itself is entirely in ember.fr; see DECISIONS.md.)
     ./ember-fr ["<cmd>"]     interactive; default cmd:  5 ' square ember
     ./ember-fr --selftest    headless: script keystrokes, assert the stack steps
 """
-import os, sys, pty, select, struct, termios, tty, fcntl
+import os, sys, pty, select, struct, termios, tty, fcntl, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LIB  = ("prelude.fr", "term.fr", "ember.fr")
@@ -61,15 +61,38 @@ def drain(fd, timeout=0.4):
     return out
 
 
+def read_until(fd, needle, timeout=3.0):
+    """Read until `needle` appears (event-driven, fast) or `timeout` elapses."""
+    out = b""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        r, _, _ = select.select([fd], [], [], deadline - time.time())
+        if not r:
+            break
+        try:
+            chunk = os.read(fd, 65536)
+        except OSError:
+            break
+        if not chunk:
+            break
+        out += chunk
+        if needle in out:
+            break
+    return out
+
+
 def selftest():
-    """Step `5 square` cell by cell, asserting the stack evolves 5 -> 5 5 -> 25."""
+    """Step `5 square` cell by cell, asserting the stack evolves 5 -> 5 5 -> 25.
+
+    Every frame ends with the status line (`...q=quit`), so we wait for that
+    sentinel after each keypress instead of sleeping a fixed interval."""
     pid, fd = spawn("5 ' square ember")
-    frames = drain(fd, 0.6)                         # boot + first frame
+    frames = read_until(fd, b"q=quit")              # boot + first frame
     for key in (b"s", b"s", b"s"):                  # step dup, *, then EXIT (done)
         os.write(fd, key)
-        frames += drain(fd, 0.4)
+        frames += read_until(fd, b"q=quit")         # the redrawn frame
     os.write(fd, b"q")                              # quit -> fr exits
-    frames += drain(fd, 0.4)
+    frames += drain(fd, 0.3)                        # let it exit cleanly
     try:
         os.close(fd)
         os.waitpid(pid, 0)

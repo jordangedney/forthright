@@ -1,15 +1,17 @@
 #!/bin/sh
-# test.sh — build forthright and run every check. Prints PASS/FAIL; exits non-zero
-# if anything failed. This is the one-command answer to "is it still working?".
-# (Documentation that can't rot: it runs the real kernel, prelude, anvil, forge,
-# ember — both backends — and the Python reference specs.)
+# test.sh — build forthright and run the core checks. Prints PASS/FAIL; exits
+# non-zero if anything failed. This is the one-command answer to "is it still
+# working?" (it runs the real kernel, prelude, anvil, forge, term, and the Python
+# reference specs). The explorer has its own, costlier suite — `./test-ember.sh`
+# (the Python model, the ptrace backend, and ember.fr under a pty); run it too
+# with `./test.sh --all`.
 cd "$(dirname "$0")" || exit 2
 fail=0
 pass() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
 bad()  { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; fail=1; }
 # check NAME ACTUAL WANTED-SUBSTRING   (runs in the main shell so fail sticks)
 check() {
-  if printf '%s' "$2" | grep -qF "$3"; then pass "$1"; else
+  if printf '%s' "$2" | grep -qF -- "$3"; then pass "$1"; else
     bad "$1 (wanted '$3', got: $(printf '%s' "$2" | tr '\n' ' ' | cut -c1-60))"
   fi
 }
@@ -28,12 +30,18 @@ check "anvil: def ... ok"        "$( ( cat prelude.fr anvil.fr; echo 'def sq ( n
 check "anvil: catches BAD"       "$( ( cat prelude.fr anvil.fr; echo 'def bad ( a b -- c ) + + ;' ) | ./fr )" "BAD"
 check "anvil: branch imbalance"  "$( ( cat prelude.fr anvil.fr; echo 'def x ( n -- n ) 0 < if dup then ;' ) | ./fr )" "br!"
 check "forge: synthesizes dup *" "$( ( cat prelude.fr anvil.fr forge.fr; echo forge ) | ./fr )"    "dup * <"
-check "ember: python model"      "$(./ember --selftest)"                                            "ALL PASS"
-check "ember: native (ptrace)"   "$(timeout 60 ./ember --native-selftest)"                          "NATIVE PASS"
-check "ember.fr: pty stepper"     "$(timeout 30 ./ember-fr --selftest)"                              "EMBER-FR PASS"
 check "anvil-reference.py spec"   "$(python3 anvil-reference.py --selftest)"                         "ALL PASS"
 check "forge-reference.py"        "$(python3 forge-reference.py)"                                    "FORGED"
 
+# --all (or -a): also run the explorer suite, folding its result into the exit code.
+case "$1" in
+  --all|-a) echo; echo '== ember suite (test-ember.sh) =='; ./test-ember.sh || fail=1 ;;
+esac
+
 echo
 if [ "$fail" -eq 0 ]; then printf '\033[32mALL CHECKS PASSED\033[0m\n'; else printf '\033[31mSOME CHECKS FAILED\033[0m\n'; fi
+case "$1" in
+  --all|-a) : ;;
+  *) printf '(explorer: run \033[36m./test-ember.sh\033[0m for the ember backends, or \033[36m./test.sh --all\033[0m)\n' ;;
+esac
 exit "$fail"
