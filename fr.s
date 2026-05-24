@@ -754,6 +754,28 @@ code_SP0:
 	push %rax
 	NEXT
 
+# syscall3 — a raw Linux syscall with up to 3 arguments. The one primitive that
+# opens the rest of the OS to fr: read/write/ioctl all take <=3 args, so this is
+# enough for raw-tty input (ioctl TCGETS/TCSETS) and ANSI output — the unlock for
+# a fully self-hosted, interactive ember. (We stop at 3 args because the 4th uses
+# %r10 and the 6-arg form is rarely needed; extend the same way if mmap is wanted.)
+# %rsi is the Forth IP, so arg2 is parked in %r8 and %rsi saved across the call.
+h_SYSCALL3: .quad h_SP0
+	.byte 8
+	.ascii "syscall3"
+SYSCALL3: .quad code_SYSCALL3		# ( a1 a2 a3 n -- ret )  n = syscall number
+code_SYSCALL3:
+	pop %rax			# syscall number
+	pop %rdx			# arg3
+	pop %r8				# arg2 (parked: %rsi holds the IP)
+	pop %rdi			# arg1
+	push %rsi			# save IP across the syscall
+	mov %r8, %rsi			# arg2 -> %rsi
+	syscall				# clobbers %rcx, %r11; result in %rax
+	pop %rsi			# restore IP
+	push %rax			# push the return value
+	NEXT
+
 # ===========================================================================
 # Outer interpreter helpers (register-passing; never touch the data stack).
 
@@ -996,7 +1018,7 @@ errmsg:	.ascii " ?\n"
 	.equ errmsg_len, . - errmsg
 
 	.data
-var_latest: .quad h_SP0			# newest dictionary entry (head of FIND)
+var_latest: .quad h_SYSCALL3		# newest dictionary entry (head of FIND)
 systab:     .quad docol, LIT, EXIT, BRANCH, ZBRANCH	# headerless engine CFAs (for `see`)
 var_state:  .quad 0			# 0 = interpret, 1 = compile
 var_here:   .quad dict_space		# next free byte for new definitions

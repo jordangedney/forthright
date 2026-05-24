@@ -13,9 +13,13 @@
 
 \ UPDATE: the introspection half is now SELF-HOSTED in prelude.fr — `see` decodes
 \ any definition (the THREAD-panel content) and `trace` single-steps a word on the
-\ live stack, printing it each step (ember's step view, no ptrace/curses). What's
-\ left for a full self-hosted ember is the interactive TUI (raw-tty input via a
-\ `syscall`/ioctl primitive fr lacks; ANSI output is already reachable with u./.n).
+\ live stack, printing it each step (ember's step view, no ptrace/curses).
+\ UPDATE 2: the input gate is open — the kernel now has `syscall3 ( a1 a2 a3 n --
+\ ret )`, a raw Linux syscall (read/write/ioctl all fit in 3 args). prelude.fr
+\ adds `key` (read one byte). So raw-tty (ioctl TCGETS/TCSETS to drop ICANON|ECHO)
+\ and ANSI output (u./.n/emit/type) are both reachable now; what remains for a
+\ full self-hosted ember is writing the TUI itself in fr (termios setup, the panel
+\ layout, the cursor-positioning escapes, the keypress loop).
 \
 \ === The model (the easy half — mostly arithmetic + memory) ===============
 \ [x] data stack + return stack mirrors of fr's two stacks   {need: @ ! arrays}
@@ -40,8 +44,8 @@
 \ [x] blinking IP marker; active cell = %rsi-8; executed cells dimmed
 \ [x] modes: edit (type Forth) / run (s step, a auto, +/- speed, r run, n new)
 \ [x] idle = fr parked in the QUIT loop; quit via `bye` / Esc / Ctrl-D
-\         {need: raw-tty input, ANSI escape output (emit strings + numbers),
-\          terminal size — all need char/string output + memory first}
+\         {need: raw-tty input + ANSI output — NOW REACHABLE via syscall3/key;
+\          terminal size is `0 TIOCGWINSZ <buf> ioctl` (syscall 16) away too}
 
 \ === Notes ================================================================
 \ Likely porting order once fr grows: model first (after @ ! + strings), then

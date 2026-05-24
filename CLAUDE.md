@@ -15,6 +15,8 @@ holds two pieces:
 
 - **`fr`** — a freestanding indirect-threaded-code (ITC) Forth for x86-64 Linux, written
   as a single GNU-assembler file `fr.s`. No libc, no runtime: raw syscalls + threaded code.
+  Exposes `syscall3 ( a1 a2 a3 n -- ret )` — a raw Linux syscall (≤3 args: read/write/ioctl
+  fit), which opens raw-tty I/O to fr and is the gate for a self-hosted interactive ember.
 - **`ember`** — a Python/curses TUI that single-steps the engine and visualizes it. By
   default it drives the *real* `fr` binary under `ptrace`; `--python` uses an equivalent
   pure-Python model. At startup it **bootstraps `prelude.fr`** into the traced fr (so
@@ -29,7 +31,8 @@ holds two pieces:
   `( cat prelude.fr yourprog.fr ) | ./fr`. It also defines **`see`** — a self-hosted
   thread decoder (`see square` → `dup * ;`) that walks the dictionary via `latest` and
   the kernel's `sys` table (which exposes the headerless engine CFAs docol/lit/exit/
-  branch/0branch). This is the fr-native analog of ember's introspection.
+  branch/0branch). This is the fr-native analog of ember's introspection. `key ( -- c )`
+  reads one byte from stdin via `syscall3` (the input primitive for a future fr-native TUI).
 - **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted), built on the
   prelude. `check{ … }`
   infers a phrase's `( in -- out )` by abstract stack simulation; `def name ( decl ) body ;`

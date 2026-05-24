@@ -96,6 +96,7 @@ after them (`\ note`, `( note )`) — they are parsed as words.
 | output | `. (n-)` signed+newline · `emit (c-)` one byte · `type (a n-)` a string |
 | parse | `word (-a n)` next token · `find (a n - cfa\|0)` · `number (a n - n f)` · `s= (a1 n1 a2 n2 - f)` · `[char]` (immediate: compile next char) |
 | reflection | `latest (-hdr)` newest dict entry · `sys (-addr)` engine-CFA table · `execute (cfa-)` run a word · `sp@ (-a)` top-item addr · `sp0 (-a)` empty-stack base |
+| system | `syscall3 (a1 a2 a3 n - ret)` raw Linux syscall, ≤3 args (read/write/ioctl/getpid…); `n` is the syscall number |
 | define | `: ;` colon defs · `variable name` (name pushes its cell addr) · `n constant name` (name pushes n) |
 | control (immediate) | `if … else … then` · `begin … until` · `begin … while … repeat` |
 | comments (immediate) | `\` to EOL · `( … )` |
@@ -110,6 +111,7 @@ after them (`\ note`, `( note )`) — they are parsed as words.
 | compare | `> (ab-f)` `0= (n-f)` |
 | memory/parse | `, (x-)` append a cell at `here` · `char (-c)` first char of next token |
 | output | `cr` newline · `space` · `u. (u-)` unsigned no-newline · `.n (n-)` signed no-newline |
+| input | `key (-c)` read one byte from stdin (via `syscall3`; for an interactive tty) |
 | reflection | `' (-cfa)` tick: next word's CFA · `see` disassemble next word · `.cfaname (cfa-)` · constants `'docol 'lit 'exit 'branch '0branch` |
 | stack tools | `depth (-n)` · `.s` print the stack (non-destructive) · `trace` step a word on the live stack, printing each step (the self-hosted analog of ember's step view; straight-line + literals only) |
 | demo | `square` |

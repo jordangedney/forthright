@@ -68,12 +68,23 @@ data stack — so they never touch it (the return address lives there transientl
 and they save/restore `%rsi` (the IP) around syscalls that clobber it. Break this
 and the data stack corrupts subtly. This is the easiest kernel invariant to violate.
 
-### ember stays in Python
-The visual explorer needs `ptrace` (single-step the real fr, read `/proc/pid/mem`)
-and raw-tty input — syscalls fr has no primitives for. **Why not self-host:** the
-*introspection* half (decode a definition) *is* self-hosted as `see`; the ptrace
-backend and TUI input are out of reach until a generic `syscall` primitive exists
-(ROADMAP). `ember.fr` tracks what a self-hosted version would need.
+### `syscall3` is the one OS primitive, capped at 3 args
+The kernel exposes a single generic `syscall3 ( a1 a2 a3 n -- ret )` rather than a
+family (`syscall0..6`) or per-call words (`read`/`write`/`ioctl`). **Why:** read,
+write, and ioctl — everything an interactive TUI needs — all take ≤3 args, and one
+word keeps the trust base small while letting the *prelude* name the syscalls (e.g.
+`key`). **Why stop at 3:** the 4th arg uses `%r10` (not the C `%rcx`), and `%rsi` is
+the Forth IP — so arg2 is parked in `%r8` and `%rsi` saved across the call. A 6-arg
+form (for `mmap`) is a straightforward extension if ever needed. This is a sharp
+edge: a wrong syscall number does a *real* syscall — fr no longer fails safe.
+
+### ember's introspection is self-hosted; its ptrace backend stays in Python
+The *introspection* half (decode a definition, step a word) *is* self-hosted —
+`see`/`trace` (prelude) plus `syscall3`/`key` for raw-tty, so a fr-native
+interactive TUI is now writable in principle. **What stays external:** the
+`NativeVM` ptrace backend (single-step the real fr, read `/proc/pid/mem`) — fr has
+no `ptrace`/`fork`/`waitpid` primitives, and that backend is a *host* debugging tool
+by nature, not part of the language's trust base. `ember.fr` tracks the rest.
 
 ### ember runs fr at native speed via a breakpoint, single-steps only for `s`
 ember bootstraps the prelude and runs `r` by setting an `int3` at the `read`

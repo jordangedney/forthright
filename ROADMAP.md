@@ -79,10 +79,12 @@ assembly is a throwaway bootstrap.
   (`,` for code), enough to re-emit the primitives. Then a Forth that compiles its
   own NEXT/docol/primitives — true self-hosting, where the `.s` file is a seed you
   could regenerate. Hard, beautiful, and the natural terminus of "everything in fr."
-- A generic **`syscall` primitive** is the cheap unlock along the way: one kernel
-  word exposing raw syscalls would give `ioctl` (raw-tty for a self-hosted `ember`,
-  terminal size), `mmap`, even `ptrace` someday — at some cost to minimalist purity.
-  Weigh it.
+- A generic **`syscall` primitive** — **DONE.** `syscall3 ( a1 a2 a3 n -- ret )` is
+  in the kernel; the prelude adds `key`. That gives raw-tty (`ioctl` TCGETS/TCSETS),
+  terminal size (`TIOCGWINSZ`), `mmap`, etc. The remaining work for a self-hosted
+  `ember` is writing the **TUI itself in fr** — termios raw-mode setup, the ANSI
+  cursor/colour escapes, the panel layout, and the keypress loop (`key` + `see`'s
+  decode + `trace`'s stepping are the pieces). That's the next concrete arc-C step.
 
 ## Cross-cutting: the corpus
 
