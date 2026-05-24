@@ -60,10 +60,17 @@ check "examples/demo runs"       "$(timeout 5 ./fr examples/demo.fr)"           
 # plays a couple of keys, quits — asserting it drew blocks and exited cleanly.
 check "examples/tetris (pty)"    "$(echo tetris | timeout 40 ./fr ember-test.fr)"                      "TETRIS OK"
 check "term: ANSI cursor+colour"  "$( ( cat lib/prelude.fr lib/term.fr; echo '7 12 1 paint' ) | ./fr )"        "[7;12H"
-check "anvil: def ... ok"        "$( ( cat lib/prelude.fr anvil.fr; echo 'def sq ( n -- n ) dup * ;' ) | ./fr )" "ok"
-check "anvil: catches BAD"       "$( ( cat lib/prelude.fr anvil.fr; echo 'def bad ( a b -- c ) + + ;' ) | ./fr )" "BAD"
-check "anvil: branch imbalance"  "$( ( cat lib/prelude.fr anvil.fr; echo 'def x ( n -- n ) 0 < if dup then ;' ) | ./fr )" "br!"
-check "forge: synthesizes dup *" "$( ( cat lib/prelude.fr anvil.fr forge.fr; echo forge ) | ./fr )"    "dup * <"
+# anvil/forge include their own deps, so run them as file-args (load-once, no cat'ing).
+check "anvil: def ... ok"          "$(echo 'def sq ( n -- n ) dup * ;'              | ./fr anvil.fr)" "ok"
+check "anvil: catches BAD"         "$(echo 'def bad ( a b -- c ) + + ;'             | ./fr anvil.fr)" "BAD"
+check "anvil: names unknown words" "$(echo 'def t foo bar ;'                        | ./fr anvil.fr)" "? foo bar"
+check "anvil: branch imbalance"    "$(echo 'def x ( n -- n ) 0 < if dup then ;'     | ./fr anvil.fr)" "br!"
+check "anvil: missing then (ctl!)" "$(echo 'def x ( n -- n ) dup 0= if 1+ ;'        | ./fr anvil.fr)" "ctl!"
+check "anvil: loop must be neutral" "$(echo 'def x ( -- ) begin 5 5 until ;'        | ./fr anvil.fr)" "br!"
+check "anvil: do/loop balances"    "$(echo 'def x ( -- ) 5 0 do i . loop ;'         | ./fr anvil.fr)" "ok"
+check "anvil: return-stack (r!)"   "$(echo 'def x ( n -- ) >r ;'                    | ./fr anvil.fr)" "r!"
+check "anvil: recursion checks"    "$(echo 'def fac ( n -- n ) dup 0= if drop 1 else dup 1- fac * then ;' | ./fr anvil.fr)" "ok"
+check "forge: synthesizes dup *"   "$(echo forge | ./fr forge.fr)"                                    "dup *"
 
 # --all (or -a): also run the explorer suite, folding its result into the exit code.
 case "$1" in

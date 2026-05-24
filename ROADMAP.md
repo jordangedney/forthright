@@ -58,18 +58,22 @@ anvil-approved code ships.
 
 ### B. Make the verifier deeper — beyond stack shape
 
-anvil checks *shape* (arity), soundly, including `if/else/then`. The frontier is
-checking *more*, each step making "trust generated code" stronger:
+anvil checks *shape* (arity), soundly, including `if/else/then`, loops, the return
+stack, and recursion. The frontier is checking *more*, each step making "trust
+generated code" stronger:
 
-- **Close the known gaps first.** `def` silently ignores unknown body words (only
-  `check{` reports them) — make `def` flag them. Keep anvil's `prim` table in sync
-  with the kernel/prelude (we just added `/ mod`; audit for others).
-- **Loops and recursion.** `begin/until`, `begin/while/repeat` in checked bodies
-  (the loop body must be stack-neutral per iteration — a clean rule to add to the
-  branch machinery). Recursion needs a self-reference effect assumption.
+- ~~**Close the known gaps.**~~ **DONE** — `def` now flags unknown body words *by name*
+  (`? foo bar`), and the `prim` table mirrors the kernel + prelude (shufflers, arithmetic,
+  comparisons, memory, return-stack, loop helpers, i/o).
+- ~~**Loops and recursion.**~~ **DONE** — `begin/until`, `begin/while/repeat`, and counted
+  `do/loop` are checked (the loop body must be stack-neutral per iteration → `br!`); control
+  structures must balance (`ctl!`); the return stack must balance (`>r`/`r>`/`r@` → `r!`);
+  and a *declared* word may recurse (the self-call assumes the declaration). (`?do`/`+loop`/
+  `leave` aren't in the kernel yet, so not in anvil either.)
 - **Types, not just counts.** Track cell *kinds* (number / address / flag) through
-  the simulation, so `@` on a flag or `+` on two addresses is caught. This is where
-  a concatenative type system earns its keep.
+  the simulation, so `@` on a flag or `+` on two addresses is caught, and `if` consuming a
+  non-flag is flagged. This is the next big step — where a concatenative type system earns
+  its keep — and the natural successor now that the count-level checks are solid.
 - **Intent, not just consistency.** anvil proves the stack is balanced, never that
   the value is right (forge shows `dup +` passing shape, failing value). Pull the
   example/property checking *into* anvil so the verifier owns intent too — e.g.
@@ -132,7 +136,8 @@ That's the whole bet, and it's within reach from here.
 
 ## Small, well-scoped TODOs (grab one)
 
-- `def` should report unknown body words (mirror `check{`'s `?` path).         `anvil.fr`
+- ~~`def` should report unknown body words (mirror `check{`'s `?` path)~~ — **DONE**
+  (`? foo bar`, by name; plus loop/control/return-stack checks + recursion).      `anvil.fr`
 - ~~Robust `_word`: span input refills~~ — **DONE** (copies to `wordbuf`; files load via argv).
 - `forge`: allow `if/else/then` in candidates (anvil already does branch analysis). `forge.fr`
 - `forge`: take the target effect + examples as input instead of hardcoding square. `forge.fr`

@@ -82,11 +82,16 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (the whole repo is Python-fr
   aren't committed, but its `:root` Nord palette and pulse keyframes are the spec); ember.fr mirrors
   it in the terminal: the `nord-*` palette, a `▸` IP marker, reverse-video fill on the executing
   cell, and a one-frame reverse "pulse" on the data/call panels when they change (see `l-pulse`).
-- **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted), built on the
-  prelude. `check{ … }`
-  infers a phrase's `( in -- out )` by abstract stack simulation; `def name ( decl ) body ;`
-  infers + registers a word's effect (so words compose) and flags mismatches with the
-  declared signature. The project's reason for existing; `anvil-spec.md` is its spec.
+- **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted), on prelude+math.
+  `check{ … }` infers a phrase's `( in -- out )` by abstract stack simulation; `def name
+  ( decl ) body ;` infers + registers a word's effect (so words compose) and checks it
+  against the declaration. Verdicts: `ok` · `BAD ( … )` (declared mismatch) · `? names`
+  (unknown words, named) · `br!` (if/else/then arms disagree, or a loop body isn't
+  stack-neutral) · `ctl!` (unbalanced control structure — `if` w/o `then`, &c.) · `r!`
+  (return stack `>r`/`r>`/`r@` unbalanced). It checks `if/else/then`, `begin/until`,
+  `begin/while/repeat`, counted `do/loop`, and *declared* recursion (the self-call assumes
+  the decl). Sound for the structured code fr produces; proves **shape, not value**.
+  The project's reason for existing; `anvil-spec.md` is its spec.
 - **`forge.fr`** — the generate → check → repair loop, **self-hosted in fr**: a generator
   builds candidate threaded bodies, the self-hosted `anvil` (`check-body`) verifies each
   one's stack effect, shape-valid candidates are `execute`d on examples, and the first

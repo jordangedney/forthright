@@ -1,4 +1,5 @@
-include lib/prelude.fr			\ depends on: prelude
+include lib/prelude.fr			\ depends on: prelude, math (<= >= used below)
+include lib/math.fr
 
 \ anvil.fr — a stack-effect verifier, written in fr (self-hosted).
 \
@@ -11,20 +12,30 @@ include lib/prelude.fr			\ depends on: prelude
 \   def sq ( n -- n ) dup * ;          \ define+check a word vs its declaration
 \ Effects print as  ( x -- y )  (one x per input cell, one y per output cell).
 \
-\ How: a name -> (consumes, produces) table. `def`/`prim` register effects;
-\ check{ / def run the abstract stack simulation from anvil-reference.py — track
-\ the running height and the lowest dip; inputs = -low, outputs = inputs+height.
-\ Words anvil already knows compose, so `def` builds a vocabulary. Sound for
-\ straight-line code (all fr is, for now).
+\ What it statically checks (by abstract stack simulation — see anvil-spec.md):
+\   - infers each word's ( in -- out ) and checks it against the declaration;
+\   - flags unknown words, by name              ->  ? foo bar
+\   - if/else/then: both arms must agree         ->  br!
+\   - begin/until, begin/while/repeat, do/loop:  loop body must be stack-neutral  ->  br!
+\   - control structures must be balanced (every if a then, &c.)  ->  ctl!
+\   - return stack must balance (>r / r> / r@)   ->  r!
+\   - recursion: a *declared* word may call itself (the self-call assumes the decl).
+\ Sound for the straight-line + structured code fr produces. It proves SHAPE, never
+\ value (`dup +` checks as ( n -- n ) but doesn't square) — intent is forge's job.
 
 \ --- storage: an effect table + a names blob (both bump-allocated) -----------
-variable tp   variable tbase      \ table: entries of [name-ptr, name-len, cons, prod]
+variable tp   variable tbase      \ table: entries of [cfa, name-ptr, name-len, cons, prod]
 variable np   variable nbase      \ names blob (copied token text)
-variable csp  variable csbase     \ control-flow stack (for nested if/else/then)
-variable imb                      \ count of branch imbalances found
+variable csp  variable csbase     \ control-flow stack (nested if/else/then, loops)
+variable unkp variable unkbase    \ unknown-token list: pairs of [name-ptr, name-len]
+variable imb                      \ count of branch / loop arm imbalances
+variable cerr                     \ count of control-structure imbalances (missing then/until/…)
+variable rerr                     \ -1 if the return stack didn't balance
+variable rdep                     \ running return-stack depth (>r +1, r> -1)
 here dup tbase ! tp !   8000 allot
 here dup nbase ! np !   8000 allot
 here dup csbase ! csp !  400 allot
+here dup unkbase ! unkp ! 400 allot
 
 \ --- simulation + scratch state ----------------------------------------------
 variable hgt   variable lo   variable unk   variable pp
@@ -39,8 +50,13 @@ variable cons-i variable prod-i       \ inferred effect of a def
 variable rg-c  variable rg-p  variable rg-len   \ register cons/prod/name-len
 variable name-a variable name-n       \ a def's name
 variable kcfa  variable bp2           \ check-body: cfa key, body pointer
+variable def-entry                    \ table entry of the word being def'd (for recursion)
+variable ui                           \ .unknowns iterator
 
 : t.str ( -- addr len )  tok-a @ tok-n @ ;   \ (space, cr, 1+, 2dup… come from prelude.fr)
+
+\ control-structure kinds (tag on each control-stack frame)
+1 constant K-IF   2 constant K-ELSE   3 constant K-BEGIN   4 constant K-WHILE   5 constant K-DO
 
 \ --- output: render an effect as ( x.. -- y.. ) ------------------------------
 : emits ( n c -- )  dc !  begin dup 0 > while  dc @ emit  1-  repeat  drop ;
@@ -56,6 +72,7 @@ variable kcfa  variable bp2           \ check-body: cfa key, body pointer
 : ,e ( x -- )  tp @ !  tp @ 8 + tp ! ;          \ append a cell, bump tp
 : cs-push ( x -- )  csp @ !  csp @ 8 + csp ! ;   \ push onto the control stack
 : cs-pop  ( -- x )  csp @ 8 - csp !  csp @ @ ;   \ pop from the control stack
+: cs-empty? ( -- f )  csp @ csbase @ <= ;
 : copy-name ( addr len -- ptr )                  \ copy token into the names blob
   cn-n !  cn-a !
   np @                                           \ result = current np
@@ -117,69 +134,129 @@ variable kcfa  variable bp2           \ check-body: cfa key, body pointer
 
 \ --- token predicates (operate on the current tok-a/tok-n) -------------------
 : read-tok ( -- )  word tok-n ! tok-a ! ;
-: 1char? ( c -- flag )  tok-n @ 1 =  swap  tok-a @ c@ =  and ;
-: end?  ( -- flag )  [char] } 1char? ;
-: semi? ( -- flag )  [char] ; 1char? ;
-: lp?   ( -- flag )  [char] ( 1char? ;
-: rp?   ( -- flag )  [char] ) 1char? ;
-: dd?   ( -- flag )  tok-n @ 2 =  tok-a @ c@ [char] - =  and
-                     tok-a @ 1+ c@ [char] - =  and ;
-: if?   ( -- flag )  tok-n @ 2 =  tok-a @ c@ [char] i =  and
-                     tok-a @ 1+ c@ [char] f =  and ;
-: else? ( -- flag )  tok-n @ 4 =  tok-a @ c@      [char] e =  and
-                     tok-a @ 1+ c@ [char] l =  and  tok-a @ 2 + c@ [char] s =  and
-                     tok-a @ 3 + c@ [char] e =  and ;
-: then? ( -- flag )  tok-n @ 4 =  tok-a @ c@      [char] t =  and
-                     tok-a @ 1+ c@ [char] h =  and  tok-a @ 2 + c@ [char] e =  and
-                     tok-a @ 3 + c@ [char] n =  and ;
+: tok=  ( addr len -- flag )  t.str s= ;          \ does the current token equal this string?
+: end?    ( -- f )  s" }"      tok= ;
+: semi?   ( -- f )  s" ;"      tok= ;
+: lp?     ( -- f )  s" ("      tok= ;
+: rp?     ( -- f )  s" )"      tok= ;
+: dd?     ( -- f )  s" --"     tok= ;
+: if?     ( -- f )  s" if"     tok= ;
+: else?   ( -- f )  s" else"   tok= ;
+: then?   ( -- f )  s" then"   tok= ;
+: begin?  ( -- f )  s" begin"  tok= ;
+: until?  ( -- f )  s" until"  tok= ;
+: while?  ( -- f )  s" while"  tok= ;
+: repeat? ( -- f )  s" repeat" tok= ;
+: do?     ( -- f )  s" do"     tok= ;
+: loop?   ( -- f )  s" loop"   tok= ;
+
+\ --- unknown-word recording (by name, so reports can show them) --------------
+: unk, ( x -- )  unkp @ !  unkp @ 8 + unkp ! ;
+: unk! ( addr len -- )                           \ record an unknown token + bump the count
+  unk @ 1+ unk !
+  dup >r  copy-name  unk,  r> unk, ;             \ store [name-ptr, len]
 
 \ --- branch handling: an if/else/then must leave both arms at the same height -
 : bad-branch ( -- )  imb @ 1+ imb ! ;
-: do-if ( -- )      \ consume the flag, then remember the arm-start height
-  1 0 apply  hgt @ cs-push  0 cs-push ;          \ push h0, kind=0 (no else yet)
+: c-bad      ( -- )  cerr @ 1+ cerr ! ;
+: do-if ( -- )      \ consume the flag, remember the arm-start height
+  1 0 apply  hgt @ cs-push  K-IF cs-push ;
 : do-else ( -- )    \ stash the true-arm result, reset to h0 for the else-arm
-  cs-pop drop  cs-pop                            \ ( h0 )  (drop kind=0)
-  hgt @ swap  hgt !                              \ hT on stack ; hgt := h0
-  cs-push  1 cs-push ;                           \ push hT, kind=1 (else seen)
+  cs-empty? if  c-bad exit then
+  cs-pop K-IF = 0= if  c-bad exit then
+  cs-pop  hgt @ swap hgt !                        \ ( hT ) ; hgt := h0
+  cs-push  K-ELSE cs-push ;
 : do-then ( -- )    \ require the two arms to agree
-  cs-pop  if                                     \ kind=1: had an else
-    cs-pop  hgt @ =  0=  if  bad-branch  then     \ hT must equal else-arm height
-  else                                           \ kind=0: empty else arm at h0
-    cs-pop  dup hgt @ =  0=  if  bad-branch  then  \ true-arm must be height-neutral
-    hgt !
-  then ;
+  cs-empty? if  c-bad exit then
+  cs-pop
+  dup K-ELSE = if  drop  cs-pop hgt @ = 0= if bad-branch then  exit  then  \ else-arm vs true-arm
+  dup K-IF   = if  drop  cs-pop dup hgt @ = 0= if bad-branch then hgt !  exit  then \ empty else: arm neutral
+  drop  c-bad ;                                   \ `then` with no matching if/else
+
+\ --- loops: the body must be stack-neutral per iteration ---------------------
+: do-begin  ( -- )  hgt @ cs-push  K-BEGIN cs-push ;
+: do-until  ( -- )  \ begin … until : `until` eats the flag; net must be neutral
+  cs-empty? if  c-bad exit then
+  cs-pop K-BEGIN = 0= if  c-bad exit then
+  1 0 apply  cs-pop hgt @ = 0= if  bad-branch then ;
+: do-while  ( -- )  \ begin … while : `while` eats the flag; keep the frame open
+  cs-empty? if  c-bad exit then
+  cs-pop K-BEGIN = 0= if  c-bad exit then
+  1 0 apply  K-WHILE cs-push ;
+: do-repeat ( -- )  \ … repeat : body must return to begin's height
+  cs-empty? if  c-bad exit then
+  cs-pop K-WHILE = 0= if  c-bad exit then
+  cs-pop hgt @ = 0= if  bad-branch then ;
+: do-do     ( -- )  2 0 apply  hgt @ cs-push  K-DO cs-push ;  \ `do` eats limit+start
+: do-loop   ( -- )  \ … loop : body must be height-neutral
+  cs-empty? if  c-bad exit then
+  cs-pop K-DO = 0= if  c-bad exit then
+  cs-pop hgt @ = 0= if  bad-branch then ;
+
+\ --- return-stack tracking (>r / r> / r@) ------------------------------------
+: r-push  ( -- )  rdep @ 1+ rdep ! ;
+: r-pop   ( -- )  rdep @ 1- dup rdep !  0 < if  -1 rerr !  then ;  \ r> below our frame
+: r-fetch ( -- )  rdep @ 0 <= if  -1 rerr !  then ;               \ r@ with nothing pushed
 
 \ --- classify one token into the running simulation --------------------------
 : classify ( -- )
-  if?   if  do-if    exit  then                   \ control flow first
-  else? if  do-else  exit  then
-  then? if  do-then  exit  then
-  t.str number  swap drop                        \ a number?
-  if  0 1 apply  exit  then                       \ literal: ( -- n )
+  if?     if  do-if      exit  then               \ control flow first
+  else?   if  do-else    exit  then
+  then?   if  do-then    exit  then
+  begin?  if  do-begin   exit  then
+  until?  if  do-until   exit  then
+  while?  if  do-while   exit  then
+  repeat? if  do-repeat  exit  then
+  do?     if  do-do      exit  then
+  loop?   if  do-loop    exit  then
+  s" >r" tok= if  1 0 apply  r-push   exit  then  \ return-stack words
+  s" r>" tok= if  0 1 apply  r-pop    exit  then
+  s" r@" tok= if  0 1 apply  r-fetch  exit  then
+  t.str number  swap drop                         \ a number?
+  if  0 1 apply  exit  then                        \ literal: ( -- n )
   t.str tlookup                                   \ a known word?
-  if  apply  else  2drop  unk @ 1+ unk !  then ;   \ else unknown
+  if  apply  else  2drop  t.str unk!  then ;       \ else unknown (record by name)
 
-\ --- reports -----------------------------------------------------------------
-: .imb ( -- )  imb @  if  [char] b emit [char] r emit [char] ! emit cr  then ;
+\ --- finalize + reports ------------------------------------------------------
+: finalize ( -- )                                \ end-of-phrase consistency checks
+  rdep @ if  -1 rerr !  then                      \ leftover items on the return stack
+  cs-empty? 0= if  c-bad  then ;                  \ an unclosed if / begin / do
+: .unknowns ( -- )
+  unk @ 0= if  exit  then
+  [char] ? emit space
+  unkbase @ ui !
+  begin  ui @ unkp @ <  while
+    ui @ @  ui @ 8 + @  type space                \ name-ptr, len
+    ui @ 16 + ui !
+  repeat  cr ;
+: .imb  ( -- )  imb  @  if  s" br!"  type cr  then ;
+: .ctl  ( -- )  cerr @  if  s" ctl!" type cr  then ;
+: .rerr ( -- )  rerr @  if  s" r!"   type cr  then ;
+: clean? ( -- f )  unk @ 0=  imb @ 0= and  cerr @ 0= and  rerr @ 0= and ;
+
 : report ( -- )                                  \ for check{
+  finalize
   lo @ negate   lo @ negate hgt @ +   .eff
-  unk @  if  [char] ? emit space unk @ .  then
-  .imb ;
+  .unknowns  .imb  .ctl  .rerr ;
 
-: okmsg  ( -- )  [char] o emit [char] k emit cr ;
-: badmsg ( -- )  [char] B emit [char] A emit [char] D emit space din @ dout @ .eff ;
+: okmsg  ( -- )  s" ok" type cr ;
+: badmsg ( -- )  s" BAD " type din @ dout @ .eff ;
 : report-def ( -- )
+  finalize
   name-a @ name-n @ type space
   cons-i @ prod-i @ .eff
   has-decl @  if
-    cons-i @ din @ =  prod-i @ dout @ =  and
+    cons-i @ din @ =  prod-i @ dout @ =  and  clean? and
     if  okmsg  else  badmsg  then
   then
-  .imb ;
+  .unknowns  .imb  .ctl  .rerr ;
 
 \ --- the two entry points ----------------------------------------------------
+: reset-sim ( -- )
+  0 hgt !  0 lo !  0 unk !  0 imb !  0 cerr !  0 rerr !  0 rdep !
+  csbase @ csp !  unkbase @ unkp ! ;
 : check{ ( -- )           \ check{ <words> }
-  0 hgt !  0 lo !  0 unk !  csbase @ csp !  0 imb !
+  reset-sim
   begin  read-tok  end? 0=  while  classify  repeat
   report ;
 
@@ -188,19 +265,47 @@ variable kcfa  variable bp2           \ check-body: cfa key, body pointer
   begin  read-tok  dd? 0=  while  din  @ 1+ din  !  repeat
   begin  read-tok  rp? 0=  while  dout @ 1+ dout !  repeat ;
 
+: pre-register ( -- )     \ register the DECLARED effect before the body, so self-calls check
+  tp @ def-entry !
+  0 name-a @ name-n @ din @ dout @ register ;
+: finish-register ( -- )  \ overwrite the pre-registered effect with the inferred one
+  cons-i @ def-entry @ 24 + !   prod-i @ def-entry @ 32 + ! ;
+
 : def ( -- )              \ def name [ ( in -- out ) ] body ;
-  read-tok  tok-a @ name-a !  tok-n @ name-n !
-  0 hgt !  0 lo !  0 unk !  0 has-decl !  csbase @ csp !  0 imb !
+  read-tok  tok-n @ name-n !                       \ copy the name out of wordbuf (later
+  tok-a @ tok-n @ copy-name name-a !               \ read-toks overwrite it) so reports show it
+  reset-sim  0 has-decl !
   read-tok  lp? if  parse-decl  read-tok  then
+  has-decl @ if  pre-register  then                \ recursion: declared self-effect
   begin  semi? 0=  while  classify  read-tok  repeat
   lo @ negate cons-i !  cons-i @ hgt @ + prod-i !
-  0 name-a @ name-n @ cons-i @ prod-i @ register   \ cfa=0 (user word, not compiled)
+  has-decl @ if  finish-register
+  else  0 name-a @ name-n @ cons-i @ prod-i @ register  then
   report-def ;
 
 \ --- the primitive effect table ( consumes produces prim <name> ) ------------
+\ Mirrors the kernel + prelude. Words not loaded register by name (CFA 0) — fine,
+\ since def/check{ look up by name; only the CFA path (forge's check-body) needs CFAs.
+\ stack shufflers
 1 2 prim dup      1 0 prim drop     2 2 prim swap     2 3 prim over
-3 3 prim rot      2 1 prim +        2 1 prim -        2 1 prim *
-1 1 prim negate   1 1 prim 1+       1 1 prim 1-       2 1 prim and
-2 1 prim or       2 1 prim =        2 1 prim <        2 1 prim >
-1 1 prim 0=       1 0 prim .        1 1 prim square
-2 1 prim /        2 1 prim mod
+3 3 prim rot      2 1 prim nip      2 4 prim 2dup     2 0 prim 2drop
+\ arithmetic / logic
+2 1 prim +        2 1 prim -        2 1 prim *        2 1 prim /
+2 1 prim mod      1 1 prim negate   1 1 prim 1+       1 1 prim 1-
+1 1 prim abs      1 1 prim 2*       1 1 prim 2/       2 1 prim min
+2 1 prim max      2 1 prim and      2 1 prim or       2 1 prim xor
+2 1 prim lshift   2 1 prim rshift
+\ comparisons (all leave one flag)
+2 1 prim =        2 1 prim <        2 1 prim >        2 1 prim <=
+2 1 prim >=       1 1 prim 0=
+\ memory
+1 1 prim @        2 0 prim !        1 1 prim c@       2 0 prim c!
+1 0 prim ,        1 1 prim cells    1 1 prim cell+
+\ return-stack words (classify special-cases these too, for r-balance)
+1 0 prim >r       0 1 prim r>       0 1 prim r@
+\ counted-loop helpers
+0 1 prim i        0 1 prim j        0 0 prim unloop
+\ i/o + misc
+1 0 prim emit     0 1 prim key      1 0 prim .        1 0 prim u.
+0 1 prim depth    0 0 prim space    0 0 prim cr       0 0 prim bye
+1 1 prim square
