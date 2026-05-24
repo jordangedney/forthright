@@ -26,14 +26,19 @@ does several things a bare Forth wouldn't until (maybe) crashing at runtime:
 7. **check return-stack balance** — `>r`/`r>`/`r@` must balance within a word (an unmatched
    `>r`, or `r>`/`r@` reaching below the word's own frame, corrupts the return address)
    (verdict `r!`);
-8. **support recursion** — a word given a declaration may call itself; the self-call is
+8. **check cell kinds** — a light type layer over the height sim tracks each cell as
+   *number / address / flag / unknown*. `@ ! c@ c!` require an address; `* / mod` reject an
+   address or flag operand; `+` rejects address+address (verdict `ty!`);
+9. **support recursion** — a word given a declaration may call itself; the self-call is
    checked against the *declared* effect, then the inferred body is verified against the
    same declaration (the assumption is discharged).
 
-The verdicts are: `ok` · `BAD ( … -- … )` (declared mismatch) · `? names` (unknown words) ·
-`br!` (branch/loop arms disagree) · `ctl!` (unbalanced control structure) · `r!` (return
-stack unbalanced). A word can earn several at once. It is **sound for the straight-line and
-structured code fr produces** (each structured construct reduces to a height constraint).
+The verdicts are: `ok` · `BAD ( … -- … )` (declared *arity* mismatch) · `? names` (unknown
+words) · `br!` (branch/loop arms disagree) · `ctl!` (unbalanced control structure) · `r!`
+(return stack unbalanced) · `ty!` (cell-kind error). A word can earn several at once; `BAD` is
+reserved for the arity headline, the other verdicts explain everything else. It is **sound for
+the straight-line and structured code fr produces** (each structured construct reduces to a
+height constraint; the kind layer is deliberately conservative — see below).
 
 ## The core: abstract stack simulation
 
@@ -99,6 +104,31 @@ before simulating the body, so a self-call resolves; the body is then checked ag
 declaration as usual. (Without a declaration there's no effect to assume, so a self-call is
 an unknown word.)
 
+## Cell kinds — a conservative type layer
+
+Alongside the height, every abstract cell carries a **kind**: number, address, flag, or
+**unknown**. Kinds enter from three places: an integer literal is a *number*; a comparison
+(`= < > <= >= 0=`) yields a *flag*; and a declaration whose input *names* it (`addr`/`adr`/
+`ptr` → address, `n`/`u` → number, `flag` → flag — any other name stays unknown) seeds the
+input cells. They propagate through the words: shufflers permute the kinds they move; `@`/`c@`
+produce *unknown* (a fetched value could be anything); pointer arithmetic is honoured
+(`address + number → address`, `cell+`/`1+`/`1-` keep address-ness, `address − address →
+number`); other arithmetic yields a *number* only when both operands are numbers.
+
+The crucial design rule: **unknown is absorbing** — any operation with an unknown operand
+produces unknown. So anvil never *asserts* a concrete kind it isn't sure of, and a `ty!` only
+fires when a cell is *known* to be the wrong kind:
+
+- `@ ! c@ c!` on a cell known to be a number or a flag (e.g. `5 @`, or `( n -- ) @`);
+- `* / mod` with an address or flag operand (e.g. `1 2 < 3 *`);
+- `+` on two addresses.
+
+Because unknown never triggers it, the layer has essentially no false positives: a value from
+a word anvil doesn't model (or anything derived from it) is unknown and passes. It catches the
+high-confidence mistakes — fetching through a literal/flag, arithmetic on a boolean — and the
+declaration is again the redundancy (`def f ( n -- n ) @ ;` is caught because the input was
+*declared* a number).
+
 ## Expected behavior (test vectors)
 
 (anvil's interface is `def name ( decl ) body ;` and `check{ … }`.)
@@ -116,6 +146,11 @@ an unknown word.)
 | `def x ( -- ) 5 0 do i . loop ;` | `ok` — counted loop, neutral body |
 | `def x ( n -- ) >r ;` | `r!` — a leaked `>r` |
 | `def fac ( n -- n ) dup 0= if drop 1 else dup 1- fac * then ;` | `ok` — recursion vs the decl |
+| `def f ( n -- n ) @ ;` | `ty!` — `@` on a declared *number* |
+| `def f ( addr -- n ) 3 cells + @ ;` | `ok` — pointer arithmetic stays an address |
+| `check{ 5 6 ! }` | `ty!` — `!` to a number, not an address |
+| `check{ 1 2 < 3 * }` | `ty!` — `*` on a flag |
+| `def f ( addr -- n ) dup @ swap cell+ @ + ;` | `ok` — fetched values are unknown, so `+` is fine |
 | `check{ dup }` | infers `( x -- yy )` — a phrase that needs 1, leaves 2 |
 
 ## The boundary (why forge exists)

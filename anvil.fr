@@ -19,9 +19,14 @@ include lib/math.fr
 \   - begin/until, begin/while/repeat, do/loop:  loop body must be stack-neutral  ->  br!
 \   - control structures must be balanced (every if a then, &c.)  ->  ctl!
 \   - return stack must balance (>r / r> / r@)   ->  r!
+\   - cell KINDS (number / address / flag): @ ! c@ c! need an address, * / mod don't
+\     take an address, + rejects address+address                 ->  ty!
 \   - recursion: a *declared* word may call itself (the self-call assumes the decl).
-\ Sound for the straight-line + structured code fr produces. It proves SHAPE, never
-\ value (`dup +` checks as ( n -- n ) but doesn't square) — intent is forge's job.
+\ Kinds flow from literals (number), comparisons (flag), and a declaration whose input
+\ names say so (`addr`/`ptr` -> address, `n`/`u` -> number, `flag` -> flag); an unknown
+\ kind never triggers ty!, so false positives are avoided.
+\ Sound for the straight-line + structured code fr produces. It proves SHAPE (and a little
+\ kind), never VALUE (`dup +` checks as ( n -- n ) but doesn't square) — intent is forge's job.
 
 \ --- storage: an effect table + a names blob (both bump-allocated) -----------
 variable tp   variable tbase      \ table: entries of [cfa, name-ptr, name-len, cons, prod]
@@ -32,6 +37,8 @@ variable imb                      \ count of branch / loop arm imbalances
 variable cerr                     \ count of control-structure imbalances (missing then/until/…)
 variable rerr                     \ -1 if the return stack didn't balance
 variable rdep                     \ running return-stack depth (>r +1, r> -1)
+variable terr                     \ count of cell-kind (type) errors
+variable astk  320 cells allot    \ abstract cell KINDS, indexed by height (see ABASE below)
 here dup tbase ! tp !   8000 allot
 here dup nbase ! np !   8000 allot
 here dup csbase ! csp !  400 allot
@@ -91,12 +98,29 @@ variable ui                           \ .unknowns iterator
   rot rot                                         \ ( cfa addr len )
   rg-c @ rg-p @  register ;
 
+\ --- cell-kind layer: a kind for every abstract cell, indexed by height ------
+\ astk[ABASE + h] is the kind of the cell at height h (h<0 = a consumed input). The
+\ height sim (hgt/lo) is untouched; this rides alongside it. Out-of-range is treated as
+\ unknown / no-op so a deep stack can never corrupt memory.
+0 constant K?   1 constant KN   2 constant KA   3 constant KF   \ unknown/number/address/flag
+64 constant ABASE
+variable sk0  variable sk1  variable sk2          \ saved consumed kinds (top, 2nd, 3rd)
+: inb ( idx -- idx f )  dup 0 >=  over 320 <  and ;
+: k@h ( h -- kind )  ABASE + inb if  cells astk + @   else  drop K?  then ;
+: k!h ( kind h -- )  ABASE + inb if  cells astk + !   else  2drop   then ;
+: topk ( -- kind )  hgt @ 1- k@h ;
+: 2ndk ( -- kind )  hgt @ 2 - k@h ;
+: kset ( kind -- )  hgt @ 1- k!h ;                \ set the (post-apply) top cell's kind
+: a-clear ( -- )  astk 320 cells 0 fill ;         \ all cells -> K? (0)
+
 \ --- the stack-effect simulation ---------------------------------------------
 : apply ( cons prod -- )
   pp !
   hgt @ swap -  hgt !                            \ hgt -= cons
   hgt @ lo @ <  if  hgt @ lo !  then             \ track low-water mark
-  hgt @ pp @ +  hgt ! ;                          \ hgt += prod
+  hgt @ pp @ +  hgt !                            \ hgt += prod
+  pp @ begin dup 0 > while                       \ produced cells (heights hgt-1..hgt-prod) default K?
+    dup hgt @ swap -  K? swap k!h  1- repeat drop ;
 
 : tlookup ( addr len -- cons prod flag )         \ look up a name's effect
   q-n !  q-a !  0 ffound !
@@ -198,6 +222,37 @@ variable ui                           \ .unknowns iterator
 : r-pop   ( -- )  rdep @ 1- dup rdep !  0 < if  -1 rerr !  then ;  \ r> below our frame
 : r-fetch ( -- )  rdep @ 0 <= if  -1 rerr !  then ;               \ r@ with nothing pushed
 
+\ --- cell-kind transfer functions --------------------------------------------
+: bad-ty ( -- )  terr @ 1+ terr ! ;
+: knum   ( -- )  KN kset ;        : kflag ( -- )  KF kset ;
+: addr?  ( kind -- f )  KA = ;    : num?  ( kind -- f )  KN = ;    : flag? ( kind -- f )  KF = ;
+: notaddr? ( kind -- f )  dup num? swap flag? or ;     \ KNOWN non-address (num or flag)
+: need-addr ( -- )  topk notaddr? if  bad-ty  then ;   \ top must be an address (or unknown)
+\ shufflers: save consumed kinds, apply (height + default K?), write the permuted kinds.
+: a-dup  ( -- )  topk sk0 !  1 2 apply  sk0 @ hgt @ 1- k!h  sk0 @ hgt @ 2 - k!h ;
+: a-swap ( -- )  topk sk0 ! 2ndk sk1 !  2 2 apply  sk1 @ hgt @ 1- k!h  sk0 @ hgt @ 2 - k!h ;
+: a-over ( -- )  topk sk0 ! 2ndk sk1 !  2 3 apply
+  sk1 @ hgt @ 1- k!h  sk0 @ hgt @ 2 - k!h  sk1 @ hgt @ 3 - k!h ;
+: a-rot  ( -- )  topk sk0 ! 2ndk sk1 ! hgt @ 3 - k@h sk2 !  3 3 apply
+  sk2 @ hgt @ 1- k!h  sk0 @ hgt @ 2 - k!h  sk1 @ hgt @ 3 - k!h ;
+: a-nip  ( -- )  topk sk0 !  2 1 apply  sk0 @ hgt @ 1- k!h ;
+: a-2dup ( -- )  topk sk0 ! 2ndk sk1 !  2 4 apply
+  sk0 @ hgt @ 1- k!h  sk1 @ hgt @ 2 - k!h  sk0 @ hgt @ 3 - k!h  sk1 @ hgt @ 4 - k!h ;
+\ arithmetic: pointer-aware, and UNKNOWN is absorbing (an unknown operand -> unknown
+\ result), so we never assert a concrete kind we'd later wrongly flag (e.g. an address
+\ from a user word + an offset must stay address-ish, not become a "number" we then ty!).
+: plus-kind  ( -- kind )  topk addr? 2ndk addr? or if KA exit then  topk num? 2ndk num? and if KN exit then  K? ;
+: minus-kind ( -- kind )  2ndk addr? if  topk addr? if KN else KA then  exit then  topk num? 2ndk num? and if KN else K? then ;
+: incr-kind  ( -- kind )  topk addr? if KA exit then  topk num? if KN else K? then ;   \ 1+ 1- cell+
+: bool-kind  ( -- kind )  topk flag? 2ndk flag? and if KF exit then  topk num? 2ndk num? and if KN else K? then ;
+: a-plus  ( -- )  topk addr? 2ndk addr? and if bad-ty then  plus-kind   2 1 apply  kset ;  \ addr+addr -> ty!
+: a-minus ( -- )  minus-kind  2 1 apply  kset ;                          \ addr-addr -> num, addr-num -> addr
+: a-mul   ( -- )  topk dup addr? swap flag? or  2ndk dup addr? swap flag? or  or if bad-ty then  2 1 apply knum ;
+: a-incr  ( -- )  incr-kind  1 1 apply  kset ;
+: a-bool  ( -- )  bool-kind  2 1 apply  kset ;                           \ and/or/xor
+: a-num1  ( -- )  topk num?            1 1 apply  if KN else K? then kset ;  \ 2* 2/ negate abs
+: a-num2  ( -- )  topk num? 2ndk num? and  2 1 apply  if KN else K? then kset ;  \ min max lshift rshift
+
 \ --- classify one token into the running simulation --------------------------
 : classify ( -- )
   if?     if  do-if      exit  then               \ control flow first
@@ -212,10 +267,47 @@ variable ui                           \ .unknowns iterator
   s" >r" tok= if  1 0 apply  r-push   exit  then  \ return-stack words
   s" r>" tok= if  0 1 apply  r-pop    exit  then
   s" r@" tok= if  0 1 apply  r-fetch  exit  then
-  t.str number  swap drop                         \ a number?
-  if  0 1 apply  exit  then                        \ literal: ( -- n )
-  t.str tlookup                                   \ a known word?
-  if  apply  else  2drop  t.str unk!  then ;       \ else unknown (record by name)
+  t.str number swap drop if  0 1 apply  knum  exit  then          \ literal -> number
+  s" dup"   tok= if  a-dup   exit then            \ shufflers (kind-permuting)
+  s" drop"  tok= if  1 0 apply  exit then
+  s" swap"  tok= if  a-swap  exit then
+  s" over"  tok= if  a-over  exit then
+  s" rot"   tok= if  a-rot   exit then
+  s" nip"   tok= if  a-nip   exit then
+  s" 2dup"  tok= if  a-2dup  exit then
+  s" 2drop" tok= if  2 0 apply  exit then
+  s" @"  tok= if  need-addr 1 1 apply  exit then  \ memory: need an address
+  s" c@" tok= if  need-addr 1 1 apply  exit then
+  s" !"  tok= if  need-addr 2 0 apply  exit then
+  s" c!" tok= if  need-addr 2 0 apply  exit then
+  s" +"  tok= if  a-plus   exit then              \ arithmetic
+  s" -"  tok= if  a-minus  exit then
+  s" *"  tok= if  a-mul    exit then
+  s" /"  tok= if  a-mul    exit then
+  s" mod" tok= if a-mul    exit then
+  s" 1+" tok= if  a-incr   exit then
+  s" 1-" tok= if  a-incr   exit then
+  s" cell+" tok= if a-incr exit then
+  s" cells" tok= if 1 1 apply knum  exit then     \ a count*8 is always a number (an offset)
+  s" 2*" tok= if  a-num1  exit then
+  s" 2/" tok= if  a-num1  exit then
+  s" negate" tok= if a-num1  exit then
+  s" abs" tok= if a-num1  exit then
+  s" min" tok= if a-num2  exit then
+  s" max" tok= if a-num2  exit then
+  s" lshift" tok= if a-num2  exit then
+  s" rshift" tok= if a-num2  exit then
+  s" and" tok= if  a-bool  exit then
+  s" or"  tok= if  a-bool  exit then
+  s" xor" tok= if  a-bool  exit then
+  s" =" tok= if  2 1 apply kflag  exit then       \ comparisons -> flag
+  s" <" tok= if  2 1 apply kflag  exit then
+  s" >" tok= if  2 1 apply kflag  exit then
+  s" <=" tok= if 2 1 apply kflag  exit then
+  s" >=" tok= if 2 1 apply kflag  exit then
+  s" 0=" tok= if 1 1 apply kflag  exit then
+  t.str tlookup                                   \ otherwise: a known word (height only)
+  if  apply  else  2drop  t.str unk!  then ;       \ or unknown (record by name)
 
 \ --- finalize + reports ------------------------------------------------------
 : finalize ( -- )                                \ end-of-phrase consistency checks
@@ -232,12 +324,14 @@ variable ui                           \ .unknowns iterator
 : .imb  ( -- )  imb  @  if  s" br!"  type cr  then ;
 : .ctl  ( -- )  cerr @  if  s" ctl!" type cr  then ;
 : .rerr ( -- )  rerr @  if  s" r!"   type cr  then ;
-: clean? ( -- f )  unk @ 0=  imb @ 0= and  cerr @ 0= and  rerr @ 0= and ;
+: .tyy  ( -- )  terr @  if  s" ty!"  type cr  then ;
+: .flags ( -- )  .unknowns  .imb  .ctl  .rerr  .tyy ;
+: clean? ( -- f )  unk @ 0=  imb @ 0= and  cerr @ 0= and  rerr @ 0= and  terr @ 0= and ;
 
 : report ( -- )                                  \ for check{
   finalize
   lo @ negate   lo @ negate hgt @ +   .eff
-  .unknowns  .imb  .ctl  .rerr ;
+  .flags ;
 
 : okmsg  ( -- )  s" ok" type cr ;
 : badmsg ( -- )  s" BAD " type din @ dout @ .eff ;
@@ -246,24 +340,38 @@ variable ui                           \ .unknowns iterator
   name-a @ name-n @ type space
   cons-i @ prod-i @ .eff
   has-decl @  if
-    cons-i @ din @ =  prod-i @ dout @ =  and  clean? and
-    if  okmsg  else  badmsg  then
+    cons-i @ din @ =  prod-i @ dout @ =  and  if    \ arity matches the declaration…
+      clean? if  okmsg  then                          \ …and nothing else complained -> ok
+    else  badmsg  then                                \ arity disagrees -> BAD (the headline)
   then
-  .unknowns  .imb  .ctl  .rerr ;
+  .flags ;                                            \ ? / br! / ctl! / r! / ty! explain the rest
 
 \ --- the two entry points ----------------------------------------------------
 : reset-sim ( -- )
-  0 hgt !  0 lo !  0 unk !  0 imb !  0 cerr !  0 rerr !  0 rdep !
-  csbase @ csp !  unkbase @ unkp ! ;
+  0 hgt !  0 lo !  0 unk !  0 imb !  0 cerr !  0 rerr !  0 rdep !  0 terr !
+  csbase @ csp !  unkbase @ unkp !  a-clear ;
 : check{ ( -- )           \ check{ <words> }
   reset-sim
   begin  read-tok  end? 0=  while  classify  repeat
   report ;
 
-: parse-decl ( -- )       \ called just after reading '(' ; counts in/out
-  -1 has-decl !  0 din !  0 dout !
-  begin  read-tok  dd? 0=  while  din  @ 1+ din  !  repeat
-  begin  read-tok  rp? 0=  while  dout @ 1+ dout !  repeat ;
+variable dinkbuf 64 cells allot  variable dki    \ declared input kinds, in order
+: decl-kind ( -- kind )   \ classify a declared input name into a cell kind
+  s" addr" tok= if  KA exit then
+  s" adr"  tok= if  KA exit then
+  s" ptr"  tok= if  KA exit then
+  s" n"    tok= if  KN exit then
+  s" u"    tok= if  KN exit then
+  s" flag" tok= if  KF exit then
+  K? ;
+: parse-decl ( -- )       \ called just after reading '(' ; counts in/out, seeds input kinds
+  -1 has-decl !  0 din !  0 dout !  0 dki !
+  begin  read-tok  dd? 0=  while
+    decl-kind  dinkbuf dki @ cells + !  dki @ 1+ dki !  din @ 1+ din !  repeat
+  begin  read-tok  rp? 0=  while  dout @ 1+ dout !  repeat
+  0 dki !                                          \ place input kinds below entry: token j -> height j-din
+  begin  dki @ din @ <  while
+    dinkbuf dki @ cells + @   dki @ din @ -  k!h  dki @ 1+ dki !  repeat ;
 
 : pre-register ( -- )     \ register the DECLARED effect before the body, so self-calls check
   tp @ def-entry !

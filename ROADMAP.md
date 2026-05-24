@@ -70,10 +70,13 @@ generated code" stronger:
   structures must balance (`ctl!`); the return stack must balance (`>r`/`r>`/`r@` → `r!`);
   and a *declared* word may recurse (the self-call assumes the declaration). (`?do`/`+loop`/
   `leave` aren't in the kernel yet, so not in anvil either.)
-- **Types, not just counts.** Track cell *kinds* (number / address / flag) through
-  the simulation, so `@` on a flag or `+` on two addresses is caught, and `if` consuming a
-  non-flag is flagged. This is the next big step — where a concatenative type system earns
-  its keep — and the natural successor now that the count-level checks are solid.
+- ~~**Types, not just counts.**~~ **DONE (first cut)** — a conservative cell-kind layer
+  (number / address / flag / unknown) rides on the height sim: `@ ! c@ c!` require an
+  address, `* / mod` reject address/flag operands, `+` rejects address+address (`ty!`).
+  Kinds flow from literals, comparisons, and kind-named decl inputs (`addr`/`n`/`flag`);
+  *unknown is absorbing*, so there are essentially no false positives. Next refinements:
+  infer address-ness for `variable`/`here`/`'` (currently unknown), track flag-ness into
+  `if`/`until` conditions, and let the declaration name *output* kinds too.
 - **Intent, not just consistency.** anvil proves the stack is balanced, never that
   the value is right (forge shows `dup +` passing shape, failing value). Pull the
   example/property checking *into* anvil so the verifier owns intent too — e.g.

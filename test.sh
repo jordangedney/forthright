@@ -70,6 +70,10 @@ check "anvil: loop must be neutral" "$(echo 'def x ( -- ) begin 5 5 until ;'    
 check "anvil: do/loop balances"    "$(echo 'def x ( -- ) 5 0 do i . loop ;'         | ./fr anvil.fr)" "ok"
 check "anvil: return-stack (r!)"   "$(echo 'def x ( n -- ) >r ;'                    | ./fr anvil.fr)" "r!"
 check "anvil: recursion checks"    "$(echo 'def fac ( n -- n ) dup 0= if drop 1 else dup 1- fac * then ;' | ./fr anvil.fr)" "ok"
+check "anvil: @ needs an address"  "$(echo 'def x ( n -- n ) @ ;'                     | ./fr anvil.fr)" "ty!"
+check "anvil: typed pointer arith" "$(echo 'def x ( addr -- n ) 3 cells + @ ;'        | ./fr anvil.fr)" "ok"
+check "anvil: store needs address" "$(echo 'check{ 5 6 ! }'                           | ./fr anvil.fr)" "ty!"
+check "anvil: * rejects a flag"    "$(echo 'check{ 1 2 < 3 * }'                       | ./fr anvil.fr)" "ty!"
 check "forge: synthesizes dup *"   "$(echo forge | ./fr forge.fr)"                                    "dup *"
 
 # --all (or -a): also run the explorer suite, folding its result into the exit code.
