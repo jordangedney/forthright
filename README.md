@@ -39,7 +39,7 @@ impossible when a human had to sit in the writing seat.
   breadth-first search stands in for the AI generator, and nothing is accepted unless anvil
   approves the shape and an example run confirms intent.
 - **ember** — the explorer: *watch* the engine run, cell by cell. The self-hosted `ember.fr`
-  drives the real engine under ptrace; the Python `ember` is the older, curses-rich one.
+  drives the real engine under ptrace, with no Python.
 - *(corpus)* — still open: generate-and-verify at scale to mint a synthetic training
   corpus, the one credible attack on Forth's "no training data" problem.
 
@@ -53,7 +53,6 @@ written *in fr*, so the whole trust base is auditable. Section "Status" lists it
   Bridging consistency-checking to intent-checking is the real research risk.
 - **Training-data gravity.** Forth has almost no corpus; the corpus tool is the bet
   against this, and it's unproven.
-- Which Forth to target (gforth? a custom minimal core?) is undecided.
 
 ## The Forth, written for this machine
 
@@ -89,50 +88,18 @@ Engine conventions: `%rsi`=IP, `%rsp`=data stack, `%rbp`=return stack, `%rax`=W.
 interpreter (`_word`/`_find`/`_number` + `INTERPRET`) is driven by the threaded
 `QUIT` loop, which branches back on itself forever.
 
-## Exploring it: ember (TUI)
+## Exploring it: ember.fr (TUI)
 
-`ember` is a terminal UI for *watching* the engine work — a threaded-code stepper
-styled after the `design` (NEXT-runner) Nord palette and execution colour coding
-(ip=cyan, stack=orange, hop=purple, exec=yellow). You single-step the inner
-interpreter and *see* the IP walk a thread and the stacks change.
-
-At startup ember loads `prelude.fr` into the traced fr (at native speed, via a breakpoint
-at the `read` syscall), so prelude words work at the prompt — e.g. type `see square` and
-ember runs the self-hosted disassembler inside the real fr.
-
-By default it **drives the real `./fr` binary**: it launches it under `ptrace`,
-single-steps machine instructions, stops at every `jmp *(%rax)` (the ITC dispatch
-NEXT/EXECUTE perform), and reads the live registers and memory — `%rsi` is the IP,
-`%rsp`/`%rbp` the real stacks — decoding the actual threaded code and dictionary
-straight out of `/proc/<pid>/mem`. No gdb required; just `ctypes` + a tiny ELF
-symbol parser. You literally watch the real QUIT loop run `(interp)`/`branch` and
-hop into colon words. A `--python` flag swaps in a pure-Python model of the same
-machine (handy on non-Linux or when `fr` isn't built).
-
-    ./ember                      # TUI driving real ./fr (needs ~76x20 terminal)
-    ./ember --python             # TUI on the Python model instead
-    ./ember --selftest           # headless Python-model check
-    ./ember --native-selftest    # headless ptrace check against ./fr
-
-Type Forth at the `ok>` prompt (`5 square .`, `: cube dup dup * * ;`). When a line
-loads a thread you drop into step mode:
-
-    s / space  single-step one cell      a  autoplay (toggle)      +/-  speed
-    r          run to completion         n  done, back to editing  q    quit
-
-Watch the `THREAD` panel: the `▸` marks the IP, executed cells dim, a hop into a
-colon word pushes a frame onto `RETURN` (purple) and the panel switches to that
-word's body; `exit` pops back. The Python engine is a deliberate superset of fr
-(adds `over rot / mod = < > negate .s`) so there's more to poke at.
-
-### …and ember.fr — the self-hosted version
-
-`ember.fr` is the same idea, **written in fr** — and it drives the *real* engine, not a
-model: it forks fr, runs the word in the child, and single-steps the child under ptrace
-(`ptrace.fr`) to each `jmp *(%rax)` dispatch, reading the child's actual registers and
-data stack with `PEEKDATA`. The view is a **full-screen, responsive** Nord dashboard
-(`term.fr` has true-colour `fg24`/`nord-*` words + `box` drawing; the layout re-reads
-`term-size` each frame) that now matches the Python ember's multi-panel layout.
+`ember.fr` is a terminal UI for *watching* the engine work — a threaded-code stepper,
+**written in fr**, that drives the *real* engine (not a model): it forks fr, runs a word in
+the child, and single-steps the child under ptrace (`lib/ptrace.fr`) to each `jmp *(%rax)`
+dispatch (the ITC dispatch NEXT/EXECUTE perform), reading the child's actual registers and
+data stack with `PEEKDATA`. Forking (not exec) means the child shares fr's dictionary, so the
+parent names the child's CFAs for free — you literally watch the real QUIT loop hop into
+colon words. The view is a **full-screen, responsive** Nord dashboard (`lib/term.fr` has
+true-colour `fg24`/`nord-*` words + `box` drawing; the layout re-reads `term-size` each
+frame), styled after the project's `index.html` design (ip=cyan, stack=orange, hop=purple,
+exec=yellow).
 It runs with **no Python at all**: the kernel loads the library from its file arguments,
 the terminal is the tty `raw-on` needs, and you type a command at the prompt:
 
@@ -167,9 +134,8 @@ the next line: `5 5 5 +` rests at `10 5`, then `3 *` continues to `30 5`. A word
 **prints** has its stdout captured into the `out` panel — `launch` points the child's fd 1/2
 at a pipe, so the output shows up instead of corrupting the TUI. The non-interactive
 `ember-trace` prints the live stack per dispatch (no tty needed); the lighter, no-ptrace model
-is the prelude's `trace`. So the Python `ember` is no longer a capability fr lacks — fr's
-explorer now matches its panels, keys, and behavior, and the Python one stays only as a
-reference UI.
+is the prelude's `trace`. (A Python/curses `ember` was the original prototype — removed once
+this self-hosted one reached parity.)
 
 ## Verifying it: anvil.fr (self-hosted)
 
@@ -276,12 +242,12 @@ new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checki
       and decode `%rax` at each `jmp *(%rax)` dispatch. `5 ' square watch` →
       `… execute square dup * ; bye` — the real engine traced, observed entirely from fr.
 - [x] **ember.fr** — the **self-hosted explorer**: a **full-screen, responsive** multi-panel
-      dashboard (`code`/`data`/`call`/`dict` + an `out` line, an input box and a key row —
-      matching the Python ember's layout) driving the *real* engine via `ptrace.fr`. `5 '
-      square ember` (or `./ember-fr`) forks a child, single-steps it, infers the call path
-      from the dispatch stream, and reads the data stack with `PEEKDATA` (`5 → 5 5 → 25`). `s`
-      steps, **`a` autoplays** (`+`/`-` speed), `r` runs, `e` is a live edit line (re-fork on a
-      new target); the `dict` panel hides the explorer's own plumbing, and a printing word's
-      stdout is **captured into the `out` panel** (the child's fd 1/2 are piped). No Python —
-      the terminal is the tty. fr now writes, verifies, forges, *and watches its own engine
-      run*, at full feature parity with the Python `ember` (which stays as a reference UI).
+      dashboard (`code`/`data`/`call`/`dict` + an `out` line, an input box and a key row)
+      driving the *real* engine via `lib/ptrace.fr`. `5 ' square ember` (or `./ember-fr`) forks
+      a child, single-steps it, infers the call path from the dispatch stream, and reads the
+      data stack with `PEEKDATA` (`5 → 5 5 → 25`). `s` steps, **`a` autoplays** (`+`/`-` speed),
+      `r` runs, `e` is a live edit line (re-fork on a new target); the `dict` panel hides the
+      explorer's own plumbing, and a printing word's stdout is **captured into the `out` panel**
+      (the child's fd 1/2 are piped). No Python — the terminal is the tty. fr now writes,
+      verifies, forges, *and watches its own engine run*. (A Python/curses `ember` was the
+      original prototype, kept until this reached parity; now removed.)

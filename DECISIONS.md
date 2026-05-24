@@ -40,10 +40,10 @@ the outer interpreter needs, and they're hot. Moving them is a clean future puri
 pass (ROADMAP arc C), gated only on accepting the speed hit.
 
 ### `.` prints a trailing newline (not the Forth-standard space)
-**Why:** `ember` reads `fr`'s stdout and splits output on newlines to fill its
-panel; a space-terminated `.` would make numbers never flush. So `.` keeps the
-newline and the prelude adds `u.`/`.n` (no-newline) for inline/formatted output.
-If you "fix" `.` to be standard, you break ember's output parsing.
+**Why:** the test harness and `ember.fr`'s OUT panel both read `fr`'s stdout and split
+on newlines; a space-terminated `.` would make numbers never flush onto their own line.
+So `.` keeps the newline and the prelude adds `u.`/`.n` (no-newline) + `lib/fmt.fr` for
+inline/formatted output. If you "fix" `.` to be standard, expect output parsing to break.
 
 ### Forth truth is `-1` (all bits), false is `0`
 Standard Forth convention. **Why it matters here:** flags are bitwise-combinable
@@ -124,7 +124,19 @@ existed, the simulator was redundant *and* less truthful (a model can drift), so
 deleted; the prelude's `trace` already fills the lightweight no-ptrace "model" niche.
 **A subtlety that made the real backend simple:** forking instead of `execve`ing means no
 ELF/argv work and a shared dictionary — the parent decodes the child's CFAs and finds the
-stack base (`sp0`) for free. The Python `ember` stays only as a *more mature UI* (curses).
+stack base (`sp0`) for free.
+
+### the Python/curses `ember` prototype was removed
+The original explorer was a ~1200-line Python/curses program with two backends: a pure-Python
+model of the engine, and a `NativeVM` that ptraced the real `fr` (its own ELF-symbol parser +
+`/proc/<pid>/mem` decode). **Why remove it:** once `ember.fr` reached full parity (layout,
+autoplay, captured output, the REPL edit line), the Python one demonstrated nothing fr can't
+do — and a 1200-line Python TUI quietly contradicts the project's whole "no Python in the loop"
+point. Unlike `anvil-reference.py`/`forge-reference.py`, it was a *UI*, not a spec, so there
+was nothing to keep it as. We lose one thing: an *independent* ptrace observer that
+cross-checked the binary/dictionary layout — judged not worth the weight (the reference specs
+plus fr's own `ember-trace`/`watch` exercise the engine, and a layout regression surfaces in
+`test.sh --all`). Recoverable from git history if that cross-check is ever wanted back.
 
 ### `ember.fr` runs with no launcher; `ember-fr` is a one-line shell exec
 `raw-on` does an `ioctl` on fd 0, which fails on a pipe — so `ember.fr` needs a real tty.
@@ -135,14 +147,8 @@ only existed to pace scripted keystrokes through a pty (a pipe can't — fr's fi
 would swallow them); that's purely a *test* concern, now isolated in `ember-pty`. **Why
 `q` calls `bye`:** the explorer is a single-shot view (like `htop`), so quitting it quits
 fr cleanly. (Re-targeting via the `e` edit line kills the child and forks a fresh one.)
-**Spelled-out labels** (`call` `code` `data` via per-char `emit`) are a stopgap until fr
-has string literals (`s"`).
-
-### ember runs fr at native speed via a breakpoint, single-steps only for `s`
-ember bootstraps the prelude and runs `r` by setting an `int3` at the `read`
-syscall and `PTRACE_CONT`-ing (not single-stepping). **Why:** single-stepping the
-prelude load would take seconds; the breakpoint makes it ~0.1 s. Single-step is
-reserved for the interactive `s` key, where you actually want to watch each cell.
+**Spelled-out labels** (`call` `code` `data` via per-char `emit`) predate fr's `s"`/`."`
+(added later); `ember.fr` hasn't been migrated to use them yet.
 
 ### anvil checks *shape* (consistency), not *intent*
 It proves a definition's stack effect is what it claims; it cannot prove the value

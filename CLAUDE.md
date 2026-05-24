@@ -28,12 +28,6 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the
   bytes since the packed dict isn't cell-aligned; interpreted, they act immediately — the
   interpret-mode `s"` buffer is transient), **`cmove fill xor lshift rshift`**, and counted
   loops **`do … loop`** (compile-only; index `i`, outer `j`, `unloop` before an early `exit`).
-- **`ember`** — a Python/curses TUI that single-steps the engine and visualizes it. By
-  default it drives the *real* `fr` binary under `ptrace`; `--python` uses an equivalent
-  pure-Python model. At startup it **bootstraps `prelude.fr`** into the traced fr (so
-  `see`, `over`, etc. are available), and `run`/bootstrap use an int3 breakpoint at the
-  `read` syscall + `PTRACE_CONT` to run fr at native speed (single-stepping is only for the
-  interactive `s`).
 - **`lib/`** — the self-hosted standard library (see `lib/README.md`). Files load each
   other with the kernel's **`include`**, so a program just `include lib/tui.fr` and runs as
   `./fr myapp.fr`. Modules: `prelude` (core), `math`, `string`, `fmt`, `random`, `term` (ANSI+termios),
@@ -66,7 +60,7 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the
   under ptrace (built on `ptrace.fr` + `term.fr`). `<args> ' <word> ember` forks a child that
   runs the word, then single-steps it to each `jmp *(%rax)` boundary, reading the child's real
   registers and data stack (`peekdata`). A **full-screen, responsive** Nord dashboard (`measure`
-  re-reads `term-size` each frame) that now mirrors the Python `ember`'s layout: `code` (the
+  re-reads `term-size` each frame): `code` (the
   word's body, one cell per row, live cell highlighted / executed cells dimmed, scrolls),
   `data` (the real stack `5 → 5 5 → 25`, top first), `call` (the live path `cube > square`,
   inferred from `docol`-entries/`EXIT`s), `dict` (the live dictionary, colon words highlighted),
@@ -83,8 +77,7 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the
   this to the interactive explorer; `ember-trace` leaves it off and runs to `bye`.) Run with
   **no Python**: `./fr ember.fr`, then type `5 ' square ember` (or the one-line `./ember-fr` shell launcher — the
   terminal *is* the tty `raw-on` needs). `ember-trace` is its non-interactive core (prints the
-  live stack per dispatch). The lighter, no-ptrace text stepper is the prelude's `trace`. ember.fr
-  now matches the Python `ember`'s panels, keys, and behavior; the Python one is just a reference UI.
+  live stack per dispatch). The lighter, no-ptrace text stepper is the prelude's `trace`.
   The visual design doc is **`index.html`** (the "NEXT-runner" React mock — its `steps.jsx`/`tui.jsx`
   aren't committed, but its `:root` Nord palette and pulse keyframes are the spec); ember.fr mirrors
   it in the terminal: the `nord-*` palette, a `▸` IP marker, reverse-video fill on the executing
@@ -106,13 +99,13 @@ explorer, in Python and now self-hosted) · **anvil** (the verifier) · **forge*
 
 **File conventions.** Forth source uses the `.fr` extension (the kernel `fr.s` is GNU
 assembler). The project's direction is to **self-host its tooling in fr**, keeping the whole
-trust base small/auditable — `anvil.fr`, `forge.fr`, `term.fr`, `ptrace.fr`, and `ember.fr`
-are all self-hosted; with `syscall6`, even ember's ptrace debugger backend is now in fr.
-The Python `ember` remains only as the *more mature* explorer UI (Nord curses, dictionary
-panel), not a capability fr lacks. The `anvil-reference.py`/`forge-reference.py` *reference
-specs* track intended behavior and **must be kept in sync as those tools gain features**. The
-fr explorer runs with no Python (`./fr ember.fr`, or the one-line
-shell `./ember-fr`); `ember-pty` is a Python harness only for *scripted* (paced) testing.
+trust base small/auditable — `anvil.fr`, `forge.fr`, `lib/term.fr`, `lib/ptrace.fr`, and
+`ember.fr` are all self-hosted; with `syscall6`, even the ptrace debugger backend is in fr.
+The `anvil-reference.py`/`forge-reference.py` *reference specs* track intended behavior and
+**must be kept in sync as those tools gain features**. The explorer runs with no Python
+(`./fr ember.fr`, or the one-line shell `./ember-fr`); `ember-pty` is a Python harness only
+for *scripted* (paced) testing. (A Python/curses `ember` was the original prototype; it was
+removed once `ember.fr` reached parity — see DECISIONS.md.)
 
 ## Commands
 
@@ -124,25 +117,20 @@ echo '3 4 + 5 * .' | ./fr  # fr is a REPL: reads Forth from stdin until EOF
 echo 'check{ dup dup * * }' | ./fr anvil.fr     # self-hosted verifier -> ( x -- y )  (anvil includes prelude)
 echo '5 square .' | ./fr lib/prelude.fr         # load a lib module as a file arg, then read stdin
 ./fr examples/demo.fr                           # a TUI sample using the lib (math/fmt/draw/tui)
-
-./ember                    # Python TUI driving the real ./fr via ptrace (Linux; needs ~76x20)
-./ember --selftest         # headless check of the Python model; --native-selftest drives ./fr
+./fr examples/tetris.fr                         # a playable Tetris on the lib
 
 ./fr ember.fr              # the SELF-HOSTED explorer (it `include`s lib/{prelude,term,ptrace}); type: 5 ' square ember
 ./ember-fr ["3 ' square ember"] # shell launcher (no Python); no arg = bare `ember` (edit prompt)
 ./ember-pty --selftest          # headless pty test of ember.fr; also --edit/--repl/--out-selftest
 ./test.sh                       # core suite: kernel/prelude/lib/anvil/forge/term + reference specs
-./test-ember.sh                 # the explorer's own suite (ptrace, ember.fr, Python ember)
+./test-ember.sh                 # the explorer's own suite (ptrace.fr, ember.fr under a pty)
 ./test.sh --all                 # both suites
 ```
 
 There is no test framework; `./test.sh` is the one-command answer for the **core**
-(kernel/prelude/anvil/forge/term + the Python reference specs — expect `ALL CHECKS PASSED`,
-~0.25s). The explorer has its own, costlier suite, **`./test-ember.sh`** (ptrace.fr, ember.fr
-via `ember-trace` (pipe) and `ember-pty` (a paced pty), and the Python `ember`);
-`./test.sh --all` runs both. The `--selftest` modes are the individual assertions these call.
-The native ember backend reads `fr`'s ELF symbol table, so **keep the binary unstripped**
-(`build.sh` already does).
+(kernel/prelude/lib/anvil/forge/term + the Python reference specs — expect `ALL CHECKS PASSED`).
+The explorer has its own suite, **`./test-ember.sh`** (ptrace.fr, and ember.fr via `ember-trace`
+(pipe) and `ember-pty` (a paced pty)); `./test.sh --all` runs both.
 
 ## fr.s architecture (the Forth kernel)
 
@@ -210,28 +198,18 @@ chain and update the `var_latest` initializer to the newest header. Do **not** a
 immediates are fine. The ITC dispatch instruction `jmp *(%rax)` assembles to bytes `FF 20`,
 which `ember` keys on — don't introduce other `jmp *(%rax)` forms casually.
 
-## ember architecture (the explorer)
+## ember.fr architecture (the explorer)
 
-The engine is deliberately decoupled from the curses UI so it runs headlessly. Two
-interchangeable backends expose the same interface (`feed`/`step`/`run` + UI-facing fields
-`dstack`/`rstack`/`frame`/`words`/`output`/`exec_name`/`halted`):
+`ember.fr` forks the running fr (the child shares the dictionary, so the parent can name the
+child's CFAs with `.cfaname`), single-steps it under ptrace to each `jmp *(%rax)` (`FF 20`)
+dispatch boundary, and reads the child's registers + data stack via `PTRACE_GETREGS`/`PEEKDATA`
+(the wrappers live in `lib/ptrace.fr`). The full-screen dashboard is rebuilt in place each
+frame; the panels, keys, and REPL behaviour are documented in `ember.fr`'s header comment.
 
-- **`VM`** — a pure-Python ITC model (mirrors `fr`, a superset of its words).
-- **`NativeVM`** — drives the real `fr`: `fork`+`PTRACE_TRACEME`+`execv`, then single-steps
-  machine instructions and stops at every `FF 20` (`jmp *(%rax)`) dispatch boundary. At that
-  stop it reads registers (`PTRACE_GETREGS`) and memory (`/proc/<pid>/mem`), walks the live
-  dictionary from `var_latest`, and decodes the thread. A tiny ELF `.symtab` parser
-  (`_parse_elf_symbols`) supplies the symbol addresses.
-
-`class UI` is the curses layer; `main()` picks `NativeVM` when `./fr` exists on Linux, else
-`VM`. Colour coding follows the design: ip=cyan, stack=orange, hop=purple, exec=yellow.
-
-**Non-obvious invariants in `NativeVM` (these were the source of past "garbage" bugs):**
-- The **active cell is at `%rsi-8`**, not `%rsi`: `lodsq` has already advanced IP past the
-  CFA now in `%rax`. Highlight and thread-center on `%rsi-8`.
-- **Only snapshot the stacks at dispatch boundaries**, where the data stack is clean. At the
-  input-read pause `fr` is blocked in `code_INTERPRET → _word → _refill → read`, so `%rsp`
-  carries transient `call` return-addresses + a saved `%rsi`. `_pause_refresh` therefore
-  preserves the last clean snapshot and only refreshes the dictionary/output.
-- **Bound the thread decode** (`_body_at`: stop at `EXIT` / a branch's inline offset / the
-  first non-code cell) so raw memory past a definition isn't rendered as giant numbers.
+**Invariants when reading the engine under ptrace (these caused the past "garbage" bugs):**
+- The **active cell is at `%rsi-8`**, not `%rsi`: `lodsq` (in `NEXT`) has already advanced the
+  IP past the CFA now in `%rax`. Highlight / thread-centre on `%rsi-8`.
+- **Only read the stacks at a dispatch boundary**, where the data stack is clean.
+- **Bound the thread decode** (stop at `EXIT` / a branch's inline offset / the first non-code
+  cell) so raw memory past a definition isn't rendered as giant numbers — `ember.fr`'s
+  `body-step`/`body-emit` and the prelude's `see` both do this.

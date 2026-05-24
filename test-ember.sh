@@ -40,8 +40,6 @@ check "ember.fr: bare expr (4 4 +)"     "$(timeout 30 ./ember-pty --expr-selftes
 check "ember.fr: autoplay runs to rest"  "$(timeout 30 ./ember-pty --auto-selftest)"   "EMBER AUTO PASS"
 check "ember.fr: captures stdout (OUT)"  "$(timeout 30 ./ember-pty --out-selftest)"    "EMBER OUT PASS"
 check "ember.fr: REPL stack persists"    "$(timeout 30 ./ember-pty --repl-selftest)"   "EMBER REPL PASS"
-check "ember (python): model"           "$(./ember --selftest)"                      "ALL PASS"
-check "ember (python): native ptrace"   "$(timeout 60 ./ember --native-selftest)"    "NATIVE PASS"
 
 echo
 if [ "$fail" -eq 0 ]; then printf '\033[32mALL EMBER CHECKS PASSED\033[0m\n'; else printf '\033[31mSOME EMBER CHECKS FAILED\033[0m\n'; fi

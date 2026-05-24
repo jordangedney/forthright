@@ -26,9 +26,9 @@ TUI apps in fr is ergonomic (`./fr app.fr`). What's *not* done is making the loo
   written in fr, it goes in `prelude.fr`, not the kernel"* is the whole game. When
   tempted to add a primitive, ask whether it's truly irreducible.
 - **Keep the reference-spec pattern.** The self-hosted tools that began as Python
-  specs keep them (`anvil-reference.py`, `forge-reference.py`) as cross-checks. (`ember.fr`
-  has graduated from spec to a real, runnable stepper; the Python `ember` is its richer
-  ptrace-backed cousin, not its spec.) Specs are how the fr versions stay honest.
+  specs keep them (`anvil-reference.py`, `forge-reference.py`) as cross-checks. Specs are
+  how the fr versions stay honest. (The explorer had a Python/curses prototype `ember`; it
+  was *not* a spec, so once `ember.fr` reached parity it was removed, not kept.)
 - **Verification is the point, not the generator.** Whatever proposes code (a dumb
   search, an LLM), the guarantee comes from `anvil`. Never let the generator's
   output be trusted without the gate.
@@ -89,8 +89,8 @@ assembly is a throwaway bootstrap.
   `term.fr` (ANSI + termios cbreak + box drawing), **`ptrace.fr` — DONE** (fork/ptrace/
   single-step/peek), and **`ember.fr` — DONE**: the self-hosted explorer, a **full-screen,
   responsive** Nord dashboard (`measure` re-reads `term-size` each frame) driving the **real**
-  engine under ptrace. It forks a child, single-steps it, and lays out the same panels as the
-  Python ember: `code` (the word's body, one cell per row, live cell highlighted / executed
+  engine under ptrace. It forks a child, single-steps it, and lays out the panels:
+  `code` (the word's body, one cell per row, live cell highlighted / executed
   dimmed, scrolls), `data` (the peeked stack, top first), `call` (the inferred path), `dict`
   (the live dictionary — its own term/ptrace/ember plumbing filtered out via the `prelude-top`/
   `ember-top` markers, so only kernel+prelude+user words show), an `out` status line, an input
@@ -101,13 +101,12 @@ assembly is a throwaway bootstrap.
   continues to `30 5`), `q`/`Esc` quit. It runs with no Python (`./ember-fr` is a one-line shell exec); the
   kernel also **loads source from argv** + reassembles tokens/comments across refills. (An
   earlier *simulator* ember.fr was dropped once the real-engine version existed; the prelude's
-  `trace` is the lightweight model.) ember.fr now matches the Python ember's panels, keys,
-  *and* behavior — including the **OUTPUT panel — DONE**: `launch` points the child's fd 1/2
-  at an O_NONBLOCK pipe and the parent drains it non-blocking each frame into a scrollback
-  buffer, so a word that prints shows up in the panel instead of corrupting the TUI. (Both
-  pipe ends are O_NONBLOCK on purpose: a blocking write end would deadlock the single-stepper.)
-  So the self-hosted explorer is at full parity; the Python `ember` is now just a reference UI.
-  Left to close (polish, not parity):
+  `trace` is the lightweight model.) It also captures output — the **OUTPUT panel — DONE**:
+  `launch` points the child's fd 1/2 at an O_NONBLOCK pipe and the parent drains it non-blocking
+  each frame into a scrollback buffer, so a word that prints shows up in the panel instead of
+  corrupting the TUI. (Both pipe ends are O_NONBLOCK on purpose: a blocking write end would
+  deadlock the single-stepper.) The Python/curses `ember` prototype this grew from has been
+  removed now that the fr-native explorer covers it. Left to close (polish):
   - A perf tweak: coalesce the per-byte `emit` writes into one `type`/frame (flicker is
     already gone via in-place redraw; wants `s"`-style string building or a scratch buffer).
 

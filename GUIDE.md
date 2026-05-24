@@ -26,11 +26,11 @@ and **forges** its own verified code.
 | `anvil.fr` | a stack-effect **verifier**, written *in fr* |
 | `forge.fr` | generate→check→repair loop, written *in fr* (synthesizes verified words) |
 | `lib/term.fr` | terminal control *in fr*: ANSI escapes + termios raw mode (the TUI substrate) |
-| `ember` | a Python/curses TUI that `ptrace`s the real `fr` and animates it |
 | `lib/ptrace.fr` | ptrace *in fr* (`syscall6`); `watch` drives the real engine — a self-hosted NativeVM |
 | `ember.fr` | the **self-hosted explorer**: a visual stepper driving the *real* engine via ptrace |
 | `ember-fr` | shell launcher: runs `ember.fr`; no arg = bare `ember` (edit prompt), or pass a command |
 | `ember-pty` | Python harness for *scripted* (paced) pty testing of `ember.fr` |
+| `examples/` | programs on the lib: `demo.fr`, `tetris.fr` |
 | `build.sh` | `as` + `ld` → `fr` |
 | `anvil-reference.py`, `forge-reference.py` | Python specs for the fr versions |
 
@@ -56,7 +56,7 @@ echo ': abs dup 0 < if negate then ;  -7 abs .' | ./fr lib/prelude.fr   # -> 7
 echo 'def sq ( n -- n ) dup * ;' | ./fr anvil.fr          # anvil: sq ok
 echo forge | ./fr forge.fr                       # synthesize
 ./fr ember.fr   # the self-hosted explorer (then type: 5 ' square ember)
-./ember                                  # the Python ptrace TUI (loads the prelude itself)
+./fr examples/tetris.fr                  # a playable Tetris built on the lib
 ```
 
 Each file `include`s what it needs (the kernel's `include` is load-once), so you don't
@@ -250,22 +250,20 @@ The generator stands in for an AI; the point is that nothing is accepted unless
 **One command: `./test.sh`** — builds and runs the core checks (kernel, prelude,
 anvil, forge, term, reference specs), printing PASS/FAIL (exit non-zero on any
 failure). The explorer is costlier to test, so it has its own suite, **`./test-ember.sh`**
-(ptrace.fr, ember.fr via `ember-trace`/`ember-pty`, and the Python `ember`); `./test.sh
---all` runs both. Run these first; the individual commands below
-are for looking closely at one. (`DECISIONS.md` records *why* the design is the way it
-is — read it before changing something that looks odd.)
+(ptrace.fr, and ember.fr via `ember-trace`/`ember-pty`); `./test.sh --all` runs both. Run
+these first; the individual commands below are for looking closely at one. (`DECISIONS.md`
+records *why* the design is the way it is — read it before changing something that looks odd.)
 
 ```sh
 ./build.sh                                   # must assemble + link cleanly
 echo '5 square .' | ./fr                      # (kernel-only smoke test, e.g. dup *)
-./test-ember.sh                               # explorer: Python model + ptrace + ember.fr
+./test.sh --all                               # everything: core + the explorer suite
 echo 'def bad ( a b -- c ) + + ;' | ./fr anvil.fr   # -> BAD
 echo forge | ./fr forge.fr                 # -> forges dup *
 python3 anvil-reference.py --selftest         # the Python spec still agrees
 ```
-If you change `fr.s`, the ember `--native-selftest` (in `test-ember.sh`) is the best
-end-to-end check (it defines words and reads the live dictionary out of the real
-process). `ember` reads the binary's symbols, so **keep `fr` unstripped** (`build.sh` does).
+If you change `fr.s`, `./test.sh --all` is the end-to-end check — `ember.fr`/`ptrace.fr`
+read the live dictionary out of a real traced process, so a layout regression shows up there.
 
 ---
 
@@ -296,16 +294,16 @@ done for `/` and `mod`).
 
 Built and working, all self-hosted where it counts: the kernel, the prelude (with a
 self-hosted disassembler `see` and tracer `trace`), the verifier `anvil`, the
-synthesis loop `forge`, the terminal layer `term.fr`, `ptrace.fr` (process control via
-`syscall6`), and `ember.fr` — a visual stepper that drives the **real** fr engine under
-ptrace: it forks a child, single-steps it, and shows a **full-screen, multi-panel** view
-(`code`/`data`/`call`/`dict` + status, matching the Python ember's layout) with the data
-stack read straight out of the process (`PEEKDATA`). `s` steps, `a` autoplays (`+`/`-`
-speed), `r` runs, `e` re-targets live, and a printing word's stdout is captured into the
-`out` panel (the child's fd 1/2 are piped, so it can't corrupt the TUI). Run it with no
-Python: `./fr ember.fr`, then type `5 ' square ember`. fr
-writes, verifies, forges, and *watches its own engine run* — at full feature parity with the
-Python `ember`, which now stays only as a reference UI, not a capability fr lacks.
+synthesis loop `forge`, a TUI standard library (`lib/`: math, string, fmt, random, term, key,
+draw, tui, time, io, ptrace), and `ember.fr` — a visual stepper that drives the **real** fr
+engine under ptrace: it forks a child, single-steps it, and shows a **full-screen, multi-panel**
+view (`code`/`data`/`call`/`dict` + an `out` line) with the data stack read straight out of the
+process (`PEEKDATA`). `s` steps, `a` autoplays (`+`/`-` speed), `r` runs, `e` re-targets live,
+and a printing word's stdout is captured into the `out` panel (the child's fd 1/2 are piped, so
+it can't corrupt the TUI). Run it with no Python: `./fr ember.fr`, then type `5 ' square ember`.
+fr writes, verifies, forges, *watches its own engine run*, and runs TUI apps like
+`examples/tetris.fr` — all with no Python in the loop. (A Python/curses `ember` was the
+original explorer prototype; it was removed once `ember.fr` reached parity.)
 
 Open directions if continuing: more `forge` targets / a smarter generator; pushing
 `s=`/`find`/`number` into the prelude for an even smaller kernel; allowing control flow
