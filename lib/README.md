@@ -37,6 +37,7 @@ but `include` is the ergonomic way.)
 |--------------|-------------------|-----------|
 | `prelude.fr` | the core vocabulary (everything derivable from the kernel) | `over rot nip 2dup negate 1+ cells , see trace key u. .n '` |
 | `math.fr`    | integer helpers | `2* 2/ abs min max <= >= /mod mod within +! clamp` |
+| `random.fr`  | a small PRNG (games, not crypto) | `seed! random random%` |
 | `string.fr`  | addr/len strings | `count blank c, s, place` (`s=` is a kernel word) |
 | `fmt.fr`     | number→text, padding | `u>str u>hex u.r .r .x type-pad` |
 | `term.fr`    | ANSI + termios (cbreak) | `at clear fg24 nord-* box raw-on raw-off raw-timed term-size reverse` |
@@ -60,7 +61,7 @@ but `include` is the ergonomic way.)
 
 ## Status
 
-`prelude math string fmt term key draw time io ptrace` are implemented and tested
+`prelude math string fmt random term key draw time io ptrace` are implemented and tested
 (`./test.sh` covers them). `tui` has `label/status-bar/menu/accept` working; richer
 widgets (scrolling lists, multi-field forms) are the next layer to grow here.
 

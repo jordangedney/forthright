@@ -113,7 +113,7 @@ after them (`\ note`, `( note )`) — they are parsed as words.
 | reflection | `latest (-hdr)` newest dict entry · `sys (-addr)` engine-CFA table · `execute (cfa-)` run a word · `sp@ (-a)` top-item addr · `sp0 (-a)` empty-stack base |
 | system | `syscall6 (a1 a2 a3 a4 a5 a6 n - ret)` raw Linux syscall, up to 6 args (`n` = number); reaches mmap, ptrace, fork, wait4, … |
 | define | `: ;` colon defs · `variable name` (name pushes its cell addr) · `n constant name` (name pushes n) |
-| control (immediate) | `if … else … then` · `begin … until` · `begin … while … repeat` |
+| control (immediate) | `if … else … then` · `begin … until` · `begin … while … repeat` · `LIMIT START do … loop` (index `i`, outer `j`; `unloop` before an early `exit`) |
 | comments (immediate) | `\` to EOL · `( … )` |
 | misc | `bye` exit(0) · `exit` early return from a definition |
 

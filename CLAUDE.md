@@ -26,7 +26,8 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the
   so diamond deps load once), **`s" …"` / `." …"`** string literals (IMMEDIATE; compile an
   inline `(s")`/`(.")` runtime + `[count][bytes][pad]`, advancing the IP **relative** to the
   bytes since the packed dict isn't cell-aligned; interpreted, they act immediately — the
-  interpret-mode `s"` buffer is transient), and **`cmove fill xor lshift rshift`**.
+  interpret-mode `s"` buffer is transient), **`cmove fill xor lshift rshift`**, and counted
+  loops **`do … loop`** (compile-only; index `i`, outer `j`, `unloop` before an early `exit`).
 - **`ember`** — a Python/curses TUI that single-steps the engine and visualizes it. By
   default it drives the *real* `fr` binary under `ptrace`; `--python` uses an equivalent
   pure-Python model. At startup it **bootstraps `prelude.fr`** into the traced fr (so
@@ -35,7 +36,7 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the
   interactive `s`).
 - **`lib/`** — the self-hosted standard library (see `lib/README.md`). Files load each
   other with the kernel's **`include`**, so a program just `include lib/tui.fr` and runs as
-  `./fr myapp.fr`. Modules: `prelude` (core), `math`, `string`, `fmt`, `term` (ANSI+termios),
+  `./fr myapp.fr`. Modules: `prelude` (core), `math`, `string`, `fmt`, `random`, `term` (ANSI+termios),
   `key` (escape-seq decoding → `KEY-*`), `draw` (panels/rules), `tui` (label/status-bar/menu/
   accept), `time`, `io`, `ptrace`. **Paths are resolved from the project root** (CWD), not the
   including file. The `anvil`/`forge`/`ember` tools live at the repo root and `include lib/…`.
@@ -172,9 +173,12 @@ the same way.
 IMMEDIATE words that run *during compilation*, emitting `BRANCH`/`ZBRANCH` (0branch) cells +
 a placeholder offset, and using the **data stack at compile time** to remember the slot
 addresses they later back-patch (offsets are relative to the offset cell, since `BRANCH`
-does `%rsi += *%rsi`). To add more control flow (`while/repeat`, `do/loop`), follow the same
-pattern. `ZBRANCH`/`BRANCH`/`LIT`/`EXIT` are headerless internal words (emitted by code, not
-typed), so they are not in the `FIND` chain.
+does `%rsi += *%rsi`). `do … loop` follows the same pattern — `do`/`loop` are IMMEDIATE and
+compile the headerless runtimes `pdo`/`ploop`, which keep `(index, limit)` on the **return
+stack** (index on top, so `i` = `r@`, `j` = the next loop out); `unloop` drops that control
+before an early `exit`. (`?do`/`+loop`/`leave` are not built yet.) `ZBRANCH`/`BRANCH`/`LIT`/
+`EXIT`/`pdo`/`ploop` are headerless internal words (emitted by code, not typed), so they are
+not in the `FIND` chain — and `see` can't decode `s"`/`."`/`do`-loops for the same reason.
 
 **Input layer — robust across refills, and loads files from `argv`.** `_word` copies each
 token into `wordbuf` as it scans, and `_word`/`\`/`(` all call `_refill` mid-scan when `inbuf`

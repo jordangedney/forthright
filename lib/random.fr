@@ -1,0 +1,11 @@
+include lib/prelude.fr			\ depends on: prelude, math
+include lib/math.fr
+
+\ random.fr — a tiny linear-congruential PRNG. Fine for games / shuffles / demos;
+\ not for anything security-sensitive. Seed it once (e.g. from time's `now-ms`).
+
+variable rnd-seed   1 rnd-seed !
+: seed!   ( n -- )       rnd-seed ! ;
+: random  ( -- u )       \ next pseudo-random non-negative number (15-bit)
+  rnd-seed @ 1103515245 * 12345 +  dup rnd-seed !  16 rshift  32767 and ;
+: random% ( n -- 0..n-1 )  random swap mod ;	\ a bounded roll

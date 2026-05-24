@@ -1011,6 +1011,90 @@ code_RSHIFT:
 	push %rax
 	NEXT
 
+# --- counted loops: do … loop, with i / j / unloop --------------------------
+# `LIMIT START do … loop` runs the body with the index as `i` (then i+1, …) until it
+# reaches LIMIT (like begin/until, it always runs at least once). (do)/(loop) keep
+# (index, limit) on the return stack — index on top, so `i` is `r@`; `j` is the next
+# loop out. To leave a loop early, `unloop` (drop the loop control) then `exit`.
+# `do`/`loop` are IMMEDIATE and compile the runtime + back-branch. (`see` can't decode
+# do-loops — pdo/ploop are headerless, like LIT/branch.)
+pdo: .quad code_pdo			# ( limit start -- )   R: -- limit index
+code_pdo:
+	pop %rax			# start (initial index)
+	pop %rdx			# limit
+	sub $8, %rbp
+	mov %rdx, (%rbp)		# push limit
+	sub $8, %rbp
+	mov %rax, (%rbp)		# push index (on top)
+	NEXT
+ploop: .quad code_ploop			# ( -- )  index++; branch back while index < limit
+code_ploop:
+	mov (%rbp), %rax
+	inc %rax
+	mov %rax, (%rbp)
+	cmp 8(%rbp), %rax		# index vs limit
+	jl .ploop_again
+	add $16, %rbp			# done: drop index + limit
+	add $8, %rsi			# skip the back-offset cell
+	NEXT
+.ploop_again:
+	add (%rsi), %rsi		# loop back to the body
+	NEXT
+
+h_DO:	.quad h_RSHIFT
+	.byte 0x82			# IMMEDIATE | len 2
+	.ascii "do"
+DO:	.quad code_DO			# ( -- loopback )
+code_DO:
+	mov var_here, %r8
+	movq $pdo, (%r8)
+	add $8, %r8
+	mov %r8, var_here
+	push %r8			# body start = the loop-back target for `loop`
+	NEXT
+
+h_LOOP:	.quad h_DO
+	.byte 0x84			# IMMEDIATE | len 4
+	.ascii "loop"
+LOOP:	.quad code_LOOP			# ( loopback -- )
+code_LOOP:
+	pop %r10
+	mov var_here, %r8
+	movq $ploop, (%r8)
+	add $8, %r8
+	mov %r10, %rax
+	sub %r8, %rax			# offset = target - slot (negative: jumps back)
+	mov %rax, (%r8)
+	add $8, %r8
+	mov %r8, var_here
+	NEXT
+
+h_I:	.quad h_LOOP
+	.byte 1
+	.ascii "i"
+I:	.quad code_I			# ( -- n )  innermost loop index
+code_I:
+	mov (%rbp), %rax
+	push %rax
+	NEXT
+
+h_J:	.quad h_I
+	.byte 1
+	.ascii "j"
+J:	.quad code_J			# ( -- n )  next-outer loop index
+code_J:
+	mov 16(%rbp), %rax
+	push %rax
+	NEXT
+
+h_UNLOOP: .quad h_J
+	.byte 6
+	.ascii "unloop"
+UNLOOP:	.quad code_UNLOOP		# ( -- )  drop one loop's control (before an early `exit`)
+code_UNLOOP:
+	add $16, %rbp
+	NEXT
+
 # ===========================================================================
 # Outer interpreter helpers (register-passing; never touch the data stack).
 
@@ -1518,7 +1602,7 @@ errmsg:	.ascii " ?\n"
 	.equ errmsg_len, . - errmsg
 
 	.data
-var_latest: .quad h_RSHIFT		# newest dictionary entry (head of FIND)
+var_latest: .quad h_UNLOOP		# newest dictionary entry (head of FIND)
 systab:     .quad docol, LIT, EXIT, BRANCH, ZBRANCH	# headerless engine CFAs (for `see`)
 var_state:  .quad 0			# 0 = interpret, 1 = compile
 var_here:   .quad dict_space		# next free byte for new definitions

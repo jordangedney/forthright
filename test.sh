@@ -37,6 +37,9 @@ check "kernel: compiled string"    "$( ( cat lib/prelude.fr; echo ': g ." hi" 9 
 check "kernel: cmove + type"       "$( ( cat lib/prelude.fr; echo 'variable b 16 allot s" hey" b swap cmove b 3 type' ) | ./fr )" "hey"
 check "kernel: fill"               "$( ( cat lib/prelude.fr; echo 'variable b 16 allot b 3 88 fill b 3 type' ) | ./fr )" "XXX"
 check "kernel: xor lshift rshift"  "$( printf '6 3 xor .  1 4 lshift .  64 1 rshift .\n' | ./fr )"     "5"
+check "kernel: do/loop + i"      "$( printf ': s 0  6 1 do i + loop  . ; s\n' | ./fr )"               "15"
+check "kernel: unloop early-exit" "$( printf ': f 9 0 do i 4 = if i . unloop exit then loop ; f\n' | ./fr )" "4"
+check "kernel: nested do (i/j)"  "$( printf ': g 2 0 do 2 0 do j . i . loop loop ; g\n' | ./fr )"     "0"
 # --- lib/ modules (each `include`s its own deps, so just  ./fr lib/X.fr ) -------
 check "lib/math: mod"            "$( printf '17 5 mod .\n' | ./fr lib/math.fr )"                       "2"
 check "lib/math: clamp"          "$( printf '5 0 3 clamp .\n' | ./fr lib/math.fr )"                    "3"
@@ -51,6 +54,7 @@ LIBF="$(mktemp)"
 printf 's" %s" zpath open-w dup s" io-ok" write-fd drop close-fd\n' "$LIBF" | ./fr lib/io.fr
 check "lib/io: write a file"     "$(cat "$LIBF")"                                                      "io-ok"
 rm -f "$LIBF"
+check "lib/random: in range"     "$( echo '42 seed!  5 random% 5 <  5 random% 0 >= and .' | ./fr lib/random.fr )" "-1"
 # --- examples ----------------------------------------------------------------
 check "examples/demo runs"       "$(timeout 5 ./fr examples/demo.fr)"                                  "New game"
 # tetris is interactive (auto-runs); load it under a pty, play a couple of keys, quit.

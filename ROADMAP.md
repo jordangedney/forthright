@@ -13,7 +13,7 @@ self-hosting, trust base small enough to read in a sitting. The *explorer* is
 self-hosted too now: `syscall6` opened the OS to fr, so `ptrace.fr` + `ember.fr` (a
 visual stepper driving the **real** engine under ptrace) run with no Python. There's
 now a real **module system** (`include`, load-once) and a **`lib/` standard library**
-(math, string, fmt, term, key, draw, tui, time, io) on a few new kernel primitives
+(math, string, fmt, random, term, key, draw, tui, time, io) on a few new kernel primitives
 (`include`, `s"`/`."` string literals, `cmove fill xor lshift rshift`), so building
 TUI apps in fr is ergonomic (`./fr app.fr`). What's *not* done is making the loop
 **real** (a true AI generator), **deep** (verification beyond stack shape), or
@@ -137,7 +137,9 @@ That's the whole bet, and it's within reach from here.
 - `forge`: take the target effect + examples as input instead of hardcoding square. `forge.fr`
 - Push `s= find number` to the prelude; shrink the kernel.            `fr.s` / `prelude.fr`
 - Wire an LLM generator into `forge-reference.py`; print the repair dialogue. `forge-reference.py`
-- `do … loop` (counted loops) as immediate words.                               `fr.s`
+- ~~`do … loop` (counted loops) as immediate words~~ — **DONE** (`do loop i j unloop`;
+  `?do`/`+loop`/`leave` still TODO). It cut tetris from 13 hand-rolled `begin` loops + 10
+  counter variables down to clean `N 0 do … i … loop`.
 - `create … does>` — so data structures (e.g. a menu's item array) build cleanly.  `fr.s`
 - Interpret-mode `s"` uses one transient buffer (two in a phrase alias) — rotate a
   small set of buffers so `s" a" s" b" s=` works interpreted, not just compiled.    `fr.s`

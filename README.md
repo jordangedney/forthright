@@ -74,7 +74,8 @@ memory `@ ! c@ c! here allot` + bulk `cmove fill`, return stack `>r r> r@`, arit
 `+ - * /`, bitwise `and or xor lshift rshift`, `= <`, I/O `. emit type word find number
 s= [char]`, string literals **`s" … "` / `." … "`**, `variable constant latest sys
 execute sp@ sp0`, the raw syscall `syscall6`, **`include`** (load another source file),
-`bye`, and the compiling words `: ; if else then begin until while repeat \ (`.
+`bye`, and the compiling words `: ; if else then begin until while repeat do loop \ (`
+(`do … loop` gives counted loops with index `i`/`j` + `unloop`).
 Load the rest from **`lib/`** — `include lib/prelude.fr` (`over rot nip 2dup negate 1+
 cells > 0= , char cr space square u.`), then `lib/math.fr`, `lib/string.fr`, etc. (see
 `lib/README.md`). Numbers (incl. negatives) push themselves; unknown tokens echo with `?`.

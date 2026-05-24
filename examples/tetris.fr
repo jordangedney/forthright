@@ -1,5 +1,6 @@
 include lib/tui.fr			\ draw, key, term, math, prelude
 include lib/time.fr			\ now-ms — wall clock for gravity
+include lib/random.fr			\ random% — which piece comes next
 
 \ tetris.fr — a playable Tetris, written in fr on the lib.   ./fr examples/tetris.fr
 \ Controls: ← → move · ↑ rotate · ↓ soft-drop · space hard-drop · q quit.
@@ -27,24 +28,21 @@ variable pbase   here pbase !			\ the table lives right here in the dictionary
 \ ===== the current piece =============================================
 variable cur-type  variable cur-rot  variable cur-row  variable cur-col
 : rot1 ( r c -- c 3-r )  swap  3 swap - ;	\ rotate a cell 90° CW inside the 4x4 box
-variable rkn
-: rotate ( r c n -- r' c' )  rkn !  begin rkn @ 0 >  while  rot1  rkn @ 1- rkn !  repeat ;
+: rotate ( r c n -- r' c' )  0 do  rot1  loop ;	\ apply the CW rotation n times
 : cur-block ( j -- br bc )			\ board (row,col) of the current piece's block j
   cur-type @ swap pblock  cur-rot @ rotate
   swap cur-row @ +  swap cur-col @ + ;
 
 \ ===== collision, movement, rotation =================================
-variable cj
 : collides? ( -- f )				\ does the current piece overlap a wall/floor/block?
-  0 cj !
-  begin  cj @ 4 <  while
-    cj @ cur-block				( br bc )
-    dup 0 <      if 2drop -1 exit then		\ off the left
-    dup COLS >=  if 2drop -1 exit then		\ off the right
-    over ROWS >= if 2drop -1 exit then		\ through the floor
-    over 0 >= if  2dup cell@  if 2drop -1 exit then  then	\ onto a settled block
-    2drop  cj @ 1+ cj !
-  repeat  0 ;
+  4 0 do
+    i cur-block					( br bc )
+    dup 0 <      if 2drop -1 unloop exit then	\ off the left
+    dup COLS >=  if 2drop -1 unloop exit then	\ off the right
+    over ROWS >= if 2drop -1 unloop exit then	\ through the floor
+    over 0 >= if  2dup cell@  if 2drop -1 unloop exit then  then	\ onto a settled block
+    2drop
+  loop  0 ;
 variable svr  variable svc
 : try-move ( dr dc -- f )			\ shift the piece; undo + return 0 if it can't go
   cur-row @ svr !  cur-col @ svc !
@@ -56,27 +54,20 @@ variable svr  variable svc
 
 \ ===== locking + clearing full lines =================================
 : lock-piece ( -- )				\ stamp the piece into the board
-  0 cj !
-  begin  cj @ 4 <  while
-    cj @ cur-block				( br bc )
+  4 0 do
+    i cur-block					( br bc )
     over 0 >= if  cur-type @ 1+  rot rot  cell!  else  2drop  then
-    cj @ 1+ cj !
-  repeat ;
-variable rfc
-: row-full? ( r -- f )
-  >r  0 rfc !
-  begin  rfc @ COLS <  while
-    r@ rfc @ cell@ 0= if  r> drop  0 exit  then
-    rfc @ 1+ rfc !
-  repeat  r> drop  -1 ;
-variable cf  variable ct  variable cpc
-: copy-row ( from to -- )  ct ! cf !  0 cpc !
-  begin  cpc @ COLS <  while  cf @ cpc @ cell@   ct @ cpc @ cell!   cpc @ 1+ cpc !  repeat ;
-variable crr  variable crc
+  loop ;
+: row-full? ( r -- f )				\ r stays on the data stack; i is the column
+  COLS 0 do  dup i cell@ 0= if  drop 0 unloop exit  then  loop  drop -1 ;
+variable cf  variable ct
+: copy-row ( from to -- )  ct ! cf !
+  COLS 0 do  cf @ i cell@   ct @ i cell!  loop ;
+variable crr					\ (this shift is descending, so it stays a begin/while)
 : clear-row ( r -- )				\ delete row r: drop everything above it down one
   crr !
   begin  crr @ 0 >  while  crr @ 1-  crr @  copy-row  crr @ 1- crr !  repeat
-  0 crc ! begin crc @ COLS < while  0  0 crc @ cell!  crc @ 1+ crc !  repeat ;
+  COLS 0 do  0  0 i cell!  loop ;		\ blank the new top row
 variable clr  variable cln
 : clear-lines ( -- n )				\ clear every full row, return how many
   0 cln !  ROWS 1- clr !
@@ -85,10 +76,9 @@ variable clr  variable cln
   repeat  cln @ ;
 
 \ ===== spawning + gravity ============================================
-variable score  variable gameover  variable seed
-: rand7 ( -- 0..6 )  seed @ 1103515245 * 12345 +  dup seed !  16 rshift  7 mod ;
+variable score  variable gameover
 : spawn ( -- )
-  rand7 cur-type !  0 cur-rot !  0 cur-row !  3 cur-col !
+  7 random% cur-type !  0 cur-rot !  0 cur-row !  3 cur-col !
   collides? if  -1 gameover !  then ;		\ can't even place it -> game over
 : gravity ( -- )				\ one downward step (or lock + clear + respawn)
   1 0 try-move 0= if
@@ -112,17 +102,14 @@ variable score  variable gameover  variable seed
 : paint ( r c v -- )				\ draw one cell at its screen position
   >r  swap BT +  swap 2 * BL +  at		\ at( BT+r, BL+2c )
   r> dup 0= if  drop space space  else  pcolour blk reset  then ;
-variable gr  variable gc
-: draw-grid ( -- )
-  0 gr ! begin gr @ ROWS < while
-    0 gc ! begin gc @ COLS < while
-      gr @ gc @  gr @ gc @ cell@  paint
-      gc @ 1+ gc ! repeat
-    gr @ 1+ gr ! repeat ;
+: draw-grid ( -- )				\ j = row, i = col
+  ROWS 0 do  COLS 0 do
+    j i  j i cell@  paint
+  loop loop ;
 : draw-piece ( -- )				\ overlay the live piece on top of the grid
-  0 cj ! begin cj @ 4 < while
-    cj @ cur-block  over 0 >= if  cur-type @ 1+  paint  else  2drop  then
-    cj @ 1+ cj ! repeat ;
+  4 0 do
+    i cur-block  over 0 >= if  cur-type @ 1+  paint  else  2drop  then
+  loop ;
 : draw ( -- )
   1 3  COLS 2 * 2 +  ROWS 2 +  s" forthright tetris" panel
   draw-grid  draw-piece
@@ -153,7 +140,7 @@ variable gr  variable gc
 variable last-ms
 : tetris ( -- )
   raw-on  hide-cursor  clear
-  now-ms seed !  clear-board  0 score !  0 gameover !  spawn
+  now-ms seed!  clear-board  0 score !  0 gameover !  spawn
   1 raw-timed  now-ms last-ms !			\ ~100ms key timeout; gravity off the wall clock
   begin
     draw
