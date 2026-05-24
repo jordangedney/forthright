@@ -13,9 +13,10 @@ holds two pieces:
 - **`ember`** — a Python/curses TUI that single-steps the engine and visualizes it. By
   default it drives the *real* `fr` binary under `ptrace`; `--python` uses an equivalent
   pure-Python model.
-- **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted): infers a
-  phrase's `( in -- out )` by abstract stack simulation and flags unknown words. It is the
-  project's reason for existing; `anvil-reference.py` is its Python spec.
+- **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted). `check{ … }`
+  infers a phrase's `( in -- out )` by abstract stack simulation; `def name ( decl ) body ;`
+  infers + registers a word's effect (so words compose) and flags mismatches with the
+  declared signature. The project's reason for existing; `anvil-reference.py` is its spec.
 
 Naming map: **forthright** (project) · **fr** (the Forth) · **ember** (the explorer) ·
 **anvil** (reserved name for the not-yet-built verifier).

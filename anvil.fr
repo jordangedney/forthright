@@ -4,84 +4,136 @@
 \ supplied OUTSIDE the shipped artifact — and small enough to audit, because it
 \ is itself a few dozen lines of the same minimal Forth.
 \
-\ Load it into fr, then check a straight-line phrase:
-\     ( cat anvil.fr; echo 'check{ dup dup * * }' ) | ./fr
-\ prints the inferred stack effect:   in 1 / out 1   (i.e. ( n -- n ) ).
+\ Two ways to use it (load anvil.fr first, then feed phrases):
+\   check{ dup dup * * }              \ infer a straight-line phrase's effect
+\   def sq ( n -- n ) dup * ;          \ define+check a word vs its declaration
+\ Effects print as  ( x -- y )  (one x per input cell, one y per output cell).
 \
-\ How it works: an effect table maps a word's CFA -> (consumes, produces).
-\ check{ reads tokens until `}`, classifies each (number / known / unknown),
-\ and runs the abstract stack simulation from anvil-reference.py: track the
-\ running height and the lowest it dips; inputs = -low, outputs = inputs+height.
-\ Sound for straight-line code (all fr is, for now).
+\ How: a name -> (consumes, produces) table. `def`/`prim` register effects;
+\ check{ / def run the abstract stack simulation from anvil-reference.py — track
+\ the running height and the lowest dip; inputs = -low, outputs = inputs+height.
+\ Words anvil already knows compose, so `def` builds a vocabulary. Sound for
+\ straight-line code (all fr is, for now).
 
-\ --- effect table: a bump-allocated array of (cfa, cons, prod) triples -------
-variable tp                 \ table pointer (next free slot)
-variable tbase              \ table base
-here dup tbase ! tp !       \ tbase = tp = here
-8000 allot                  \ reserve the table region
+\ --- storage: an effect table + a names blob (both bump-allocated) -----------
+variable tp   variable tbase      \ table: entries of [name-ptr, name-len, cons, prod]
+variable np   variable nbase      \ names blob (copied token text)
+here dup tbase ! tp !   8000 allot
+here dup nbase ! np !   8000 allot
 
-\ --- simulation state --------------------------------------------------------
-variable hgt                \ current stack height (relative to entry)
-variable lo                 \ lowest height reached (<= 0); -lo = inputs needed
-variable unk                \ count of unknown / no-effect words
-variable pp                 \ scratch (a word's "produces", inside apply)
-variable kcfa               \ search key (inside tlookup)
-variable fcons              \ found consumes
-variable fprod              \ found produces
-variable ffound             \ found flag
-variable tok-a              \ current token address
-variable tok-n              \ current token length
+\ --- simulation + scratch state ----------------------------------------------
+variable hgt   variable lo   variable unk   variable pp
+variable fcons variable fprod variable ffound
+variable q-a   variable q-n           \ tlookup query
+variable tok-a variable tok-n         \ current token
+variable cn-a  variable cn-n          \ copy-name source
+variable dc                           \ emits char
+variable ein   variable eout          \ .eff counts
+variable din   variable dout variable has-decl
+variable cons-i variable prod-i       \ inferred effect of a def
+variable rg-c  variable rg-p          \ register cons/prod
+variable name-a variable name-n       \ a def's name
 
 : space ( -- )  32 emit ;
 : t.str ( -- addr len )  tok-a @ tok-n @ ;
 
+\ --- output: render an effect as ( x.. -- y.. ) ------------------------------
+: emits ( n c -- )  dc !  begin dup 0 > while  dc @ emit  1-  repeat  drop ;
+: .eff ( in out -- )
+  eout !  ein !
+  [char] ( emit space
+  ein @ [char] x emits
+  space [char] - emit [char] - emit space
+  eout @ [char] y emits
+  space [char] ) emit cr ;
+
 \ --- building the table ------------------------------------------------------
-: ,t ( x -- )  tp @ !  tp @ 8 + tp ! ;          \ append a cell, bump tp
-: prim ( cons prod -- )  word find ,t  swap ,t  ,t ;   \ name follows; store cfa,cons,prod
+: ,e ( x -- )  tp @ !  tp @ 8 + tp ! ;          \ append a cell, bump tp
+: copy-name ( addr len -- ptr )                  \ copy token into the names blob
+  cn-n !  cn-a !
+  np @                                           \ result = current np
+  begin  cn-n @ 0 >  while
+    cn-a @ c@  np @ c!
+    cn-a @ 1+ cn-a !   np @ 1+ np !   cn-n @ 1- cn-n !
+  repeat ;
+: register ( addr len cons prod -- )             \ add a name -> effect entry
+  rg-p !  rg-c !
+  2dup copy-name  ,e                             \ name-ptr
+  swap drop  ,e                                  \ name-len
+  rg-c @ ,e   rg-p @ ,e ;                         \ cons, prod
+: prim ( cons prod -- )  rg-p ! rg-c !  word  rg-c @ rg-p @  register ;  \ name follows
 
 \ --- the stack-effect simulation ---------------------------------------------
-: apply ( cons prod -- )    \ fold one word's effect into hgt / lo
+: apply ( cons prod -- )
   pp !
-  hgt @ swap -  hgt !                           \ hgt -= cons
-  hgt @ lo @ <  if  hgt @ lo !  then            \ track the low-water mark
-  hgt @ pp @ +  hgt ! ;                         \ hgt += prod
+  hgt @ swap -  hgt !                            \ hgt -= cons
+  hgt @ lo @ <  if  hgt @ lo !  then             \ track low-water mark
+  hgt @ pp @ +  hgt ! ;                          \ hgt += prod
 
-: tlookup ( cfa -- cons prod flag )             \ find a cfa's effect in the table
-  kcfa !  0 ffound !
+: tlookup ( addr len -- cons prod flag )         \ look up a name's effect
+  q-n !  q-a !  0 ffound !
   tbase @
   begin  dup tp @ <  while
-    dup @ kcfa @ =  if
-      dup 8 + @  fcons !
-      dup 16 + @ fprod !
+    dup @  over 8 + @  q-a @ q-n @  s=  if
+      dup 16 + @ fcons !
+      dup 24 + @ fprod !
       -1 ffound !
     then
-    24 +
+    32 +
   repeat  drop
   ffound @  if  fcons @ fprod @ -1  else  0 0 0  then ;
 
-: end? ( -- flag )  tok-n @ 1 =  tok-a @ c@ [char] } =  and ;
+\ --- token predicates (operate on the current tok-a/tok-n) -------------------
+: read-tok ( -- )  word tok-n ! tok-a ! ;
+: 1char? ( c -- flag )  tok-n @ 1 =  swap  tok-a @ c@ =  and ;
+: end?  ( -- flag )  [char] } 1char? ;
+: semi? ( -- flag )  [char] ; 1char? ;
+: lp?   ( -- flag )  [char] ( 1char? ;
+: rp?   ( -- flag )  [char] ) 1char? ;
+: dd?   ( -- flag )  tok-n @ 2 =  tok-a @ c@ [char] - =  and
+                     tok-a @ 1+ c@ [char] - =  and ;
 
-: classify ( -- )           \ fold the current token into the simulation
-  t.str number  swap drop                       \ ( is-number? )
-  if  0 1 apply  exit  then                      \ a literal: ( -- n )
-  t.str find                                     \ ( cfa )
-  dup 0=  if  drop  unk @ 1+ unk !  exit  then    \ not in fr at all: unknown
-  tlookup  if  apply  else  2drop  unk @ 1+ unk !  then ;
+\ --- classify one token into the running simulation --------------------------
+: classify ( -- )
+  t.str number  swap drop                        \ a number?
+  if  0 1 apply  exit  then                       \ literal: ( -- n )
+  t.str tlookup                                   \ a known word?
+  if  apply  else  2drop  unk @ 1+ unk !  then ;   \ else unknown
 
-: report ( -- )
-  [char] i emit [char] n emit space  lo @ negate .
-  [char] o emit [char] u emit [char] t emit space  lo @ negate hgt @ + .
+\ --- reports -----------------------------------------------------------------
+: report ( -- )                                  \ for check{
+  lo @ negate   lo @ negate hgt @ +   .eff
   unk @  if  [char] ? emit space unk @ .  then ;
 
-: check{ ( -- )            \ check{ <words> }  -> print the inferred effect
+: okmsg  ( -- )  [char] o emit [char] k emit cr ;
+: badmsg ( -- )  [char] B emit [char] A emit [char] D emit space din @ dout @ .eff ;
+: report-def ( -- )
+  name-a @ name-n @ type space
+  cons-i @ prod-i @ .eff
+  has-decl @  if
+    cons-i @ din @ =  prod-i @ dout @ =  and
+    if  okmsg  else  badmsg  then
+  then ;
+
+\ --- the two entry points ----------------------------------------------------
+: check{ ( -- )           \ check{ <words> }
   0 hgt !  0 lo !  0 unk !
-  begin
-    word tok-n ! tok-a !
-    end? 0=
-  while
-    classify
-  repeat
+  begin  read-tok  end? 0=  while  classify  repeat
   report ;
+
+: parse-decl ( -- )       \ called just after reading '(' ; counts in/out
+  -1 has-decl !  0 din !  0 dout !
+  begin  read-tok  dd? 0=  while  din  @ 1+ din  !  repeat
+  begin  read-tok  rp? 0=  while  dout @ 1+ dout !  repeat ;
+
+: def ( -- )              \ def name [ ( in -- out ) ] body ;
+  read-tok  tok-a @ name-a !  tok-n @ name-n !
+  0 hgt !  0 lo !  0 unk !  0 has-decl !
+  read-tok  lp? if  parse-decl  read-tok  then
+  begin  semi? 0=  while  classify  read-tok  repeat
+  lo @ negate cons-i !  cons-i @ hgt @ + prod-i !
+  name-a @ name-n @ cons-i @ prod-i @ register
+  report-def ;
 
 \ --- the primitive effect table ( consumes produces prim <name> ) ------------
 1 2 prim dup      1 0 prim drop     2 2 prim swap     2 3 prim over

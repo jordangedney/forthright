@@ -113,17 +113,20 @@ word's body; `exit` pops back. The Python engine is a deliberate superset of fr
 ## Verifying it: anvil.fr (self-hosted)
 
 `anvil.fr` is the payoff — a stack-effect verifier **written in fr**, so the whole
-trust chain (language + checker) stays small enough to audit. Load it and check a
-straight-line phrase:
+trust chain (language + checker) stays small enough to audit. Load it, then either
+infer a phrase's effect or define-and-check a word against its declared signature
+(effects print as `( x.. -- y.. )`, one glyph per cell):
 
-    ( cat anvil.fr; echo 'check{ dup dup * * }' ) | ./fr      # -> in 1 / out 1
-    ( cat anvil.fr; echo 'check{ over over < }'  ) | ./fr      # -> in 2 / out 3
-    ( cat anvil.fr; echo 'check{ bogus }'         ) | ./fr      # -> in 0 / out 0  ? 1
+    ( cat anvil.fr; echo 'check{ dup dup * * }' )         | ./fr   # ( x -- y )
+    ( cat anvil.fr; echo 'def sq ( n -- n ) dup * ;' )    | ./fr   # sq ( x -- y )  ok
+    ( cat anvil.fr; echo 'def bad ( a b -- c ) + + ;' )   | ./fr   # bad ( xxx -- y )  BAD ( xx -- y )
 
-It keeps a CFA→`(consumes,produces)` table (built with `prim`), and `check{ … }`
-reads tokens until `}`, classifies each (number / known word / unknown), and runs
-the abstract stack simulation (`hgt`/`lo`): inputs `= -lo`, outputs `= inputs+hgt`.
-`anvil-reference.py` is the Python spec it follows.
+It keeps a name→`(consumes,produces)` table (`prim` for built-ins, `def` for new
+words). `check{ … }` / `def` read tokens, classify each (number / known word /
+unknown), and run the abstract stack simulation (`hgt`/`lo`): inputs `= -lo`,
+outputs `= inputs+hgt`. `def` registers the inferred effect (so words compose) and
+flags any disagreement with the declared `( … -- … )`. `anvil-reference.py` is the
+Python spec it follows.
 
 ## Status
 
@@ -142,9 +145,11 @@ the abstract stack simulation (`hgt`/`lo`): inputs `= -lo`, outputs `= inputs+hg
       — the toolkit to read source, match names, and print a report (~2.8 KB text)
 - [x] Glue for practical programming: `exit 2dup 2drop nip rot 1+ 1- and or`,
       `begin while repeat`; comments `\` and `(` (~3.3 KB text)
-- [x] **anvil.fr**, self-hosted: a stack-effect verifier written *in fr* (~50
-      lines). Infers a phrase's `( in -- out )` by abstract stack simulation and
-      flags unknown words. The thesis made literal — the redundancy Forth lacks,
-      in a trust base small enough to audit. (`anvil-reference.py` = Python spec.)
-- [ ] anvil.fr next: parse `: … ;` to register inferred effects, and check them
-      against a declared `( … -- … )` comment (mismatch = bug caught)
+- [x] **anvil.fr**, self-hosted: a stack-effect verifier written *in fr* (~90
+      lines). `check{ … }` infers a phrase's `( in -- out )`; `def name ( decl )
+      body ;` infers a definition's effect, registers it (so later words compose),
+      and flags any mismatch with the declared signature. The thesis made literal
+      — the redundancy Forth lacks, in a trust base small enough to audit.
+      (`anvil-reference.py` = Python spec.)
+- [ ] anvil.fr next: branch analysis — both arms of `if/else` must leave the same
+      stack effect (the rule that makes a concatenative checker genuinely powerful)
