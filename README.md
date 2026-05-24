@@ -29,15 +29,22 @@ The error-correcting redundancy the language lacks is supplied by the *pipeline*
 *artifact*. You get minimal-Forth **and** reliability at once — the configuration that was
 impossible when a human had to sit in the writing seat.
 
-## Architecture (working names)
+## Architecture (the blacksmith metaphor)
 
-- **anvil** — the verifier. The thing generated code gets hammered against until it's
-  stack-correct. Stack-effect checking first; richer type/intent checks later. The core
-  of the whole bet: anvil is the redundancy Forth doesn't have, living *outside* the
-  shipped code.
-- *(generator)* — drives the AI generate → check → repair loop against anvil.
-- *(corpus)* — generate-and-verify at scale to mint a synthetic training corpus, the one
-  credible attack on Forth's "no training data" problem.
+- **anvil** — the verifier; code gets hammered against it until it's stack-correct. The
+  core of the whole bet: the redundancy Forth doesn't have, living *outside* the shipped
+  code. **Built** (`anvil.fr`, self-hosted): stack-effect checking + branch analysis;
+  richer type/intent checks later.
+- **forge** — the generate → check → repair loop. **Built** (`forge.fr`, self-hosted): a
+  breadth-first search stands in for the AI generator, and nothing is accepted unless anvil
+  approves the shape and an example run confirms intent.
+- **ember** — the explorer: *watch* the engine run, cell by cell. Built twice — the Python
+  `ember` (ptrace + curses) and the self-hosted `ember.fr`/`live.fr` (see below).
+- *(corpus)* — still open: generate-and-verify at scale to mint a synthetic training
+  corpus, the one credible attack on Forth's "no training data" problem.
+
+(Everything below `fr.s` — prelude, anvil, forge, term, ember.fr, ptrace, live — is
+written *in fr*, so the whole trust base is auditable. Section "Status" lists it all.)
 
 ## Open questions / known hard parts
 
@@ -65,7 +72,8 @@ Build and run (it's a REPL — reads Forth from stdin until EOF):
 The **kernel** (raw `./fr`) knows only the irreducible primitives: `dup drop swap`,
 memory `@ ! c@ c! here allot`, return stack `>r r> r@`, arithmetic `+ - * / mod`,
 `= <`, `and or`, I/O `. emit type word find number s= [char]`, `variable constant
-latest sys bye`, and the compiling words `: ; if else then begin until while repeat \ (`.
+latest sys execute sp@ sp0`, the raw syscall `syscall6`, `bye`, and the compiling words
+`: ; if else then begin until while repeat \ (`.
 Load **prelude.fr** for the rest (`over rot nip 2dup 2drop negate 1+ 1- cells cell+
 > 0= , char cr space square u.`). Numbers (incl. negatives) push themselves; unknown
 tokens echo back with `?`.
@@ -120,12 +128,13 @@ word's body; `exit` pops back. The Python engine is a deliberate superset of fr
 `ember.fr` is the same idea, **written in fr**: an interactive visual stepper that
 walks a word's threaded body on the live data stack, one cell per keypress, with the
 current cell highlighted and a live `data` panel. It's built entirely on fr — `see`/
-`trace` for the model, `key`/`raw-on` (the kernel's `syscall3` → `ioctl`) for input,
+`trace` for the model, `key`/`raw-on` (`ioctl` via the kernel's `syscall6`) for input,
 `term.fr` for ANSI output. It runs with **no Python at all**: the kernel loads the
 library from its file arguments, then the terminal is the REPL (so `raw-on` has a real
 tty). Type a stepping command at the prompt:
 
-    ./fr prelude.fr term.fr ember.fr      # then type:  3 ' cube ember
+    ./fr prelude.fr term.fr ember.fr      # then type:  5 ' square ember
+    #   (or define your own first:  : cube dup square * ;   then  3 ' cube ember)
 
 ```
  ember: cube  #2            space=step  r=run  q=quit

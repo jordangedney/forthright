@@ -292,7 +292,7 @@ self-hosted disassembler `see` and tracer `trace`), the verifier `anvil`, the
 synthesis loop `forge`, the terminal layer `term.fr`, and `ember.fr` — an interactive
 visual stepper written in fr that *steps into colon words* (a `call`/`code`/`data` view,
 like the Python ember) and *follows control flow* (if/else and loops). Run it with no
-Python: `./fr prelude.fr term.fr ember.fr`, then type `3 ' cube ember`. fr writes,
+Python: `./fr prelude.fr term.fr ember.fr`, then type `5 ' square ember`. fr writes,
 verifies, forges, and *watches* its own code — and with `syscall6` it now **ptraces** too:
 `ptrace.fr` forks and single-steps a child, and **`live.fr` is the visual stepper driving
 the *real* engine** (reading the live data stack with `PEEKDATA`). So everything the Python

@@ -107,7 +107,7 @@ flickery — buffering a redraw into a single `type` is a deliberate later step
 mode is validated once under a pty (a byte with no newline echoes immediately and
 exactly once → `ICANON` and `ECHO` are both off), since `ioctl` needs a real tty.
 
-### a self-hosted ember exists (`ember.fr`); the ptrace backend stays in Python
+### the explorer is fully self-hosted now (`ember.fr` simulates, `live.fr` ptraces)
 `ember.fr` is now a real interactive stepper *in fr* — `see`/`trace` for the model,
 `key`/`raw-on` for input, `term.fr` for output. It has parity with the Python ember's
 *core*: `estep` **follows control flow** (reads a `0branch`'s flag off the stack, moves

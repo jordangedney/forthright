@@ -9,10 +9,12 @@ where I'd push next and why," not a contract.
 The thesis is **proven in miniature**: a ~3 KB auditable Forth kernel, a standard
 library written in itself, a stack-effect verifier (`anvil`) written in fr, and a
 generate→check→repair loop (`forge`) that synthesizes verified words — all
-self-hosting, trust base small enough to read in a sitting. What's *not* done is
-making it **real** (a true AI in the loop), **deep** (verification beyond stack
-shape), or **complete** (fr building its own kernel). Those are the three arcs
-below.
+self-hosting, trust base small enough to read in a sitting. The *explorer* is
+self-hosted too now: `syscall6` opened the OS to fr, so `ember.fr` (simulated
+stepping), `ptrace.fr`, and `live.fr` (the visual stepper driving the **real** engine
+under ptrace) all run with no Python. What's *not* done is making the loop **real** (a
+true AI generator), **deep** (verification beyond stack shape), or **complete** (fr
+building its own kernel). Those are the three arcs below.
 
 ## Principles to keep (don't break these)
 

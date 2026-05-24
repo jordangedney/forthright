@@ -10,8 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 **forthright** is an experiment toward an "AI writes it, a verifier checks it, ship tiny
-auditable Forth" pipeline (see README.md for the thesis). Concretely the repo currently
-holds two pieces:
+auditable Forth" pipeline (see README.md for the thesis). Concretely the repo holds the
+kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the pieces:
 
 - **`fr`** — a freestanding indirect-threaded-code (ITC) Forth for x86-64 Linux, written
   as a single GNU-assembler file `fr.s`. No libc, no runtime: raw syscalls + threaded code.
@@ -35,7 +35,7 @@ holds two pieces:
   thread decoder (`see square` → `dup * ;`) that walks the dictionary via `latest` and
   the kernel's `sys` table (which exposes the headerless engine CFAs docol/lit/exit/
   branch/0branch). This is the fr-native analog of ember's introspection. `key ( -- c )`
-  reads one byte from stdin via `syscall3` (the input primitive for a future fr-native TUI).
+  reads one byte from stdin via `syscall3` (the input primitive the fr-native TUIs use).
 - **`term.fr`** — terminal control written in fr, loaded after the prelude
   (`cat prelude.fr term.fr …`). ANSI output (`clear at fg bg sgr bold reset
   hide-cursor show-cursor`) and termios raw/cbreak mode via `ioctl` (`raw-on`/`raw-off`
@@ -81,13 +81,13 @@ explorer, in Python and now self-hosted) · **anvil** (the verifier) · **forge*
 
 **File conventions.** Forth source uses the `.fr` extension (the kernel `fr.s` is GNU
 assembler). The project's direction is to **self-host its tooling in fr**, keeping the whole
-trust base small/auditable — `anvil.fr`, `forge.fr`, `term.fr`, `ember.fr`, and `ptrace.fr`
-are all self-hosted. The Python `ember` remains only as the *richer* explorer (its ptrace
-backend + curses chrome); with `syscall6`, fr can now ptrace too (`ptrace.fr` single-steps a
-child), so a self-hosted backend is reachable. The `anvil-reference.py`/`forge-reference.py`
-*reference specs* track
-intended behavior and **must be kept in sync as those tools gain features**. `ember.fr` is
-launched via the `ember-fr` pty bridge (host-glue, like ember's ptrace backend).
+trust base small/auditable — `anvil.fr`, `forge.fr`, `term.fr`, `ember.fr`, `ptrace.fr`, and
+`live.fr` are all self-hosted, and with `syscall6` even the ptrace debugger backend is now in
+fr (`live.fr`). The Python `ember` remains only as the *more mature* explorer UI (Nord curses,
+dictionary panel), not a capability fr lacks. The `anvil-reference.py`/`forge-reference.py`
+*reference specs* track intended behavior and **must be kept in sync as those tools gain
+features**. The fr TUIs run with no Python (`./fr prelude.fr term.fr ember.fr`); `ember-fr` is
+a pty wrapper for scripted testing + pre-typing the command.
 
 ## Commands
 
@@ -105,7 +105,7 @@ echo '3 4 + 5 * .' | ./fr  # fr is a REPL: reads Forth from stdin until EOF
 ./fr prelude.fr term.fr ember.fr     # the SELF-HOSTED stepper (simulates), no Python
 ./fr prelude.fr term.fr ptrace.fr live.fr   # the SELF-HOSTED stepper on the LIVE ptrace backend
 ./ember-fr "5 ' square ember"   # ember.fr via a pty wrapper that pre-types the command
-./ember-fr --live "3 ' cube live"   # live.fr (real engine under ptrace) via the pty wrapper
+./ember-fr --live "5 ' square live"  # live.fr (real engine under ptrace) via the pty wrapper
 ./ember-fr --selftest           # headless pty check of ember.fr; --live-selftest for live.fr
 ./test.sh                       # core suite: kernel/prelude/anvil/forge/term + reference specs
 ./test-ember.sh                 # the explorer's own suite (ember model, ptrace, ember.fr/pty)
@@ -124,9 +124,9 @@ The native ember backend reads `fr`'s ELF symbol table, so **keep the binary uns
 
 Register convention is the whole engine: `%rsi`=IP, `%rsp`=data stack, `%rbp`=return stack,
 `%rax`=W (scratch). The inner interpreter is the `NEXT` macro = `lodsq ; jmp *(%rax)`:
-fetch the next CFA into W and jump through it. `docol` (`fr.s:41`) enters a colon definition
-(pushes IP to the return stack); `EXIT` pops it. `_start` (`fr.s:33`) sets up the stacks and
-points IP at the `cold_start`→`QUIT` thread.
+fetch the next CFA into W and jump through it. `docol:` enters a colon definition
+(pushes IP to the return stack); `EXIT` pops it. `_start:` sets up the stacks and
+points IP at the `cold_start`→`QUIT` thread. (Labels are greppable; line numbers drift.)
 
 **Dictionary layout is packed, no alignment.** Each entry is `[ .quad link | .byte len |
 .ascii name ]` immediately followed by the codeword cell (the CFA). Therefore
@@ -134,8 +134,8 @@ points IP at the `cold_start`→`QUIT` thread.
 len byte is the IMMEDIATE flag (`0x80`); `_find` masks with `0x7f`. The list head is the
 `var_latest` variable.
 
-**Outer interpreter / REPL:** `_word`/`_find`/`_number` (`fr.s:262`,`309`,`345`) are helper
-routines, and `code_INTERPRET` (`fr.s:382`) dispatches one token. The loop itself is *threaded
+**Outer interpreter / REPL:** `_word:`/`_find:`/`_number:` are helper
+routines, and `code_INTERPRET:` dispatches one token. The loop itself is *threaded
 Forth*: the `QUIT` word is `INTERPRET ; BRANCH <back>` running forever — assembly and threaded
 code interleave through `NEXT`. Compile mode uses `var_state`/`var_here`/`dict_space`: `:`
 (`code_COLON`) builds a header + `docol` codeword and enters compile mode; `;` is IMMEDIATE
