@@ -57,6 +57,7 @@ check "live.fr: peeks the real data stack" "$( ( cat prelude.fr term.fr ptrace.f
 # --- end-to-end backends (slower: a pty and a ptraced process) -----------------
 check "live.fr: visual TUI on real engine" "$(timeout 30 ./ember-fr --live-selftest)"               "EMBER-FR LIVE PASS"
 check "ember.fr: pty stepper 5->25"  "$(timeout 30 ./ember-fr --selftest)"        "EMBER-FR PASS"
+check "ember.fr: live edit re-targets" "$(timeout 30 ./ember-fr --edit-selftest)" "EMBER-FR EDIT PASS"
 check "ember: Python model"          "$(./ember --selftest)"                      "ALL PASS"
 check "ember: native ptrace backend" "$(timeout 60 ./ember --native-selftest)"    "NATIVE PASS"
 

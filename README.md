@@ -148,7 +148,9 @@ own call stack — so the `code` panel switches to the callee and `call` shows t
 `cube > square`, exactly like the Python ember hopping into a definition (primitives
 stay atomic). It also **follows control flow**: `0branch` pops the live flag and
 `branch` moves the cursor, so `if/else` and `begin/until` loops step too. `r` runs to
-the end. The `ember-fr` script is a convenience/test wrapper (it adds a pty so
+the end, and **`e` is a live edit line** — type `3 square` or `2 3 + abs` to re-target
+the stepper in place (numbers push, words run as setup, the last word is stepped), no
+restart needed. The `ember-fr` script is a convenience/test wrapper (it adds a pty so
 keystrokes can be scripted: `./ember-fr --selftest`). ember.fr *simulates* the engine;
 **`live.fr` drives the real one under ptrace** (see below), so the Python `ember` is no
 longer a capability fr lacks — only a more mature UI (RETURN frames, dictionary, Nord
@@ -248,8 +250,9 @@ new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checki
       `./fr a.fr b.fr` loads source files from `argv` before the stdin REPL.
 - [x] **ember.fr** — the **self-hosted ember**: an interactive visual stepper written
       in fr, run with no Python (`./fr prelude.fr term.fr ember.fr`). It **steps into
-      colon words** (`call`/`code`/`data` view) and **follows control flow** (if/else +
-      loops). fr now writes, verifies, forges, *and watches* its own code.
+      colon words** (`call`/`code`/`data` view), **follows control flow** (if/else +
+      loops), and has a **live edit line** (`e` — type `3 square` to re-target in place).
+      fr now writes, verifies, forges, *and watches* its own code.
 - [x] **ptrace.fr** — process control + **ptrace** *in fr*: `fork`, `PTRACE_TRACEME`,
       `SINGLESTEP`, `GETREGS`, `PEEKDATA` — all just `syscall6` shuffles. ptrace was never
       special, just a 4-arg syscall `syscall3` couldn't reach. Its `watch` is a **self-hosted

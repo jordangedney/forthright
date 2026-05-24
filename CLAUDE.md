@@ -49,9 +49,11 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the
   `r` runs to the end, `q`/`Esc` quit. It **follows control flow** (`0branch` pops the live
   flag, `branch` moves the cursor) AND **steps into colon words** — `estep` descends through
   `docol`/`EXIT` tracking its own call stack (`rstk`/`cstk`), so the `code` panel switches to
-  the callee and `call` shows `cube > square` (primitives stay atomic). Run it with **no
-  Python**: `./fr prelude.fr term.fr ember.fr`, then type `5 ' square ember` (the kernel loads
-  the files from `argv`, then the tty is the REPL so `raw-on` works). `./ember-fr` is a pty
+  the callee and `call` shows `cube > square` (primitives stay atomic). `r` runs to the end;
+  **`e` is a live edit line** — reads a Forth line and re-targets in place (numbers push,
+  words run as setup, last word is stepped: `3 square`, `2 3 + abs`), no restart. Run it with
+  **no Python**: `./fr prelude.fr term.fr ember.fr`, then type `5 ' square ember` (the kernel
+  loads files from `argv`, then the tty is the REPL so `raw-on` works). `./ember-fr` is a pty
   wrapper for scripted testing + pre-typing the command. ember.fr *simulates* the engine.
 - **`ptrace.fr`** — process control + ptrace in fr (on `syscall6`): `fork`/`wait4`/`traceme`/
   `ssstep`/`getregs`/`peekdata`. `watch` drives the *real* fr engine: fork (child shares the

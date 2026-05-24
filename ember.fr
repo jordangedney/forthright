@@ -17,7 +17,10 @@
 \ model (see/trace), the input (key/raw-on), the output (term.fr). This file is just
 \ the loop that ties them together.
 \
-\   keys  : space / s = step one cell   ·   r = run to the end   ·   q / Esc = quit
+\   keys  : space/s = step · r = run to end · e = edit (type a new target) · q/Esc = quit
+\   edit  : `e` reads a line of Forth and re-targets the stepper — `3 square`, `2 3 + abs`,
+\           etc. (numbers push, words run as setup, the last word is the one to step). No
+\           restart needed. Definitions still go at the REPL before launching.
 \   panels: call (the call path, e.g. cube > square) · code (the current word's body,
 \           current cell highlighted) · data (the live stack).
 \   scope : follows control flow — if/else/then and begin/until/while/repeat step
@@ -96,6 +99,7 @@ variable cstk  64 cells allot     variable cn
 : .stepk ( -- ) [char] s emit [char] p emit [char] a emit [char] c emit [char] e emit
                 [char] = emit [char] s emit [char] t emit [char] e emit [char] p emit ;
 : .runk  ( -- ) [char] r emit [char] = emit [char] r emit [char] u emit [char] n emit ;
+: .editk ( -- ) [char] e emit [char] = emit [char] e emit [char] d emit [char] i emit [char] t emit ;
 : .quitk ( -- ) [char] q emit [char] = emit [char] q emit [char] u emit [char] i emit [char] t emit ;
 : .done  ( -- ) [char] d emit [char] o emit [char] n emit [char] e emit ;
 
@@ -133,7 +137,7 @@ variable ci
 
 : draw-status ( -- )
   edone @ if  2 sgr .done reset  else  .stepk  space space .runk  then
-  space space  .quitk ;
+  space space  .editk  space space  .quitk ;
 
 : draw ( -- )                     \ repaint in place (atclr clears each row's tail — no
                                   \ full-screen wipe, so no flicker; see `clear` once below)
@@ -143,6 +147,50 @@ variable ci
   5 2 atclr  2 sgr .code reset    5 9 at  draw-thread
   7 2 atclr  2 sgr .data reset    7 9 at  .s
   9 2 atclr  draw-status ;
+
+\ --- live edit: type a new target into the TUI ------------------------------
+\ Read a line of Forth and re-target the stepper. Tokens read as you'd expect —
+\ numbers are pushed (the new args), words are executed (stack setup) — except the
+\ LAST word, which becomes the word to step. So `2 3 + square` pushes 5 and steps
+\ square; `7 abs` steps abs on 7. (Definitions go at the REPL before launching.)
+variable lbuf  88 allot
+variable lblen  variable lcur  variable pend
+: clear-stack ( -- )  begin  depth 0 >  while  drop  repeat ;
+: lc@    ( -- c )  lbuf lcur @ + c@ ;
+: lc-ws? ( -- f )  lc@ 32 =  lc@ 9 =  or  lc@ 10 =  or ;
+: token  ( -- addr len )                       \ next whitespace-delimited token of lbuf
+  begin  lcur @ lblen @ <  lc-ws?     and  while  lcur @ 1+ lcur !  repeat
+  lbuf lcur @ +  0
+  begin  lcur @ lblen @ <  lc-ws? 0=  and  while  1+  lcur @ 1+ lcur !  repeat ;
+: do-token ( addr len -- )                     \ number -> push; word -> defer-execute
+  2dup number if
+    >r 2drop r>                                \ keep the value as an arg
+  else
+    drop  find  dup if
+      >r                                          \ stash the new CFA off the data stack...
+      pend @ if  pend @ execute  then             \ ...so the previous word runs on clean args
+      r>  pend !                                  \ this word becomes the pending target
+    else  drop  then                             \ unknown token: ignore
+  then ;
+: parse-line ( -- target )                     \ interpret lbuf; last word = target CFA
+  0 lcur !  0 pend !
+  begin  token dup  while  do-token  repeat  2drop
+  pend @ ;
+: read-line ( -- )                             \ read+echo a line into lbuf; Enter ends it
+  0 lblen !
+  begin
+    key                                          ( c )
+    dup 13 = over 10 = or if  drop  exit  then               \ Enter
+    dup 8 = over 127 = or if  drop                           \ backspace
+      lblen @ 0 > if  lblen @ 1- lblen !  8 emit space 8 emit  then
+    else
+      lblen @ 87 < if  dup lbuf lblen @ + c!  lblen @ 1+ lblen !  emit  else drop then
+    then
+  0 until ;
+: edit-target ( -- )                           \ prompt, read a line, re-target the stepper
+  9 2 atclr  [char] > emit space  show-cursor
+  clear-stack  read-line  hide-cursor
+  parse-line  dup 0= if  drop ecfa @  then  einit ;
 
 \ --- the event loop ----------------------------------------------------------
 : ember ( cfa -- )                \ usage:  <args> ' <word> ember
@@ -154,10 +202,11 @@ variable ci
     dup 0<              if  drop  -1 equit !
     else dup [char] q = if  drop  -1 equit !
     else dup 27 =       if  drop  -1 equit !        \ Esc
+    else dup [char] e = if  drop  edit-target       \ type a new target
     else dup [char] r = if  drop  erun              \ run to the end
     else dup [char] s = over 32 = or if  drop  edone @ 0= if estep then
     else drop
-    then then then then then
+    then then then then then then
     equit @
   until
   show-cursor  reset  raw-off  cr  bye ;

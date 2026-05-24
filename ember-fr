@@ -136,6 +136,29 @@ def live_selftest():
     return 1
 
 
+def edit_selftest():
+    """Live edit line: start stepping square(5), then re-target to square(3) by typing
+    `e` + `3 square` in the TUI; running it must reach 9 (not the original 25)."""
+    pid, fd = spawn("5 ' square ember")
+    read_until(fd, b"q=quit")
+    os.write(fd, b"e")                              # enter edit mode
+    time.sleep(0.2)
+    os.write(fd, b"3 square\r")                     # re-target: step square on 3
+    frames = read_until(fd, b"q=quit", 2.0)
+    os.write(fd, b"r")                              # run it to the end
+    frames += read_until(fd, b"q=quit", 2.0)
+    os.write(fd, b"q")
+    frames += drain(fd, 0.3)
+    try:
+        os.close(fd)
+        os.waitpid(pid, 0)
+    except OSError:
+        pass
+    ok = (b"9" in frames) and (b"square" in frames)  # square(3)=9 proves the re-target took
+    print("EMBER-FR EDIT PASS" if ok else "EMBER-FR EDIT FAIL")
+    return 0 if ok else 1
+
+
 def interactive(cmd, files=LIB):
     rows, cols = 24, 80
     try:
@@ -177,6 +200,8 @@ def main():
         sys.exit(selftest())
     if args and args[0] == "--live-selftest":
         sys.exit(live_selftest())
+    if args and args[0] == "--edit-selftest":
+        sys.exit(edit_selftest())
     if args and args[0] == "--live":               # ./ember-fr --live ["3 ' cube live"]
         interactive(args[1] if len(args) > 1 else "5 ' square live", files=LIVE)
         return
