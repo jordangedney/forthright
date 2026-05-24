@@ -51,7 +51,8 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the
   `docol`/`EXIT` tracking its own call stack (`rstk`/`cstk`), so the `code` panel switches to
   the callee and `call` shows `cube > square` (primitives stay atomic). `r` runs to the end;
   **`e` is a live edit line** — reads a Forth line and re-targets in place (numbers push,
-  words run as setup, last word is stepped: `3 square`, `2 3 + abs`), no restart. Run it with
+  words run as setup, last word is stepped: `3 square`, `2 3 + square`; an unknown or
+  non-colon target flashes `<word> ?` and leaves the stepping intact), no restart. Run it with
   **no Python**: `./fr prelude.fr term.fr ember.fr`, then type `5 ' square ember` (the kernel
   loads files from `argv`, then the tty is the REPL so `raw-on` works). `./ember-fr` is a pty
   wrapper for scripted testing + pre-typing the command. ember.fr *simulates* the engine.

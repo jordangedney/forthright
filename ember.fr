@@ -18,7 +18,7 @@
 \ the loop that ties them together.
 \
 \   keys  : space/s = step · r = run to end · e = edit (type a new target) · q/Esc = quit
-\   edit  : `e` reads a line of Forth and re-targets the stepper — `3 square`, `2 3 + abs`,
+\   edit  : `e` reads a line of Forth and re-targets the stepper — `3 square`, `2 3 + square`,
 \           etc. (numbers push, words run as setup, the last word is the one to step). No
 \           restart needed. Definitions still go at the REPL before launching.
 \   panels: call (the call path, e.g. cube > square) · code (the current word's body,
@@ -149,12 +149,15 @@ variable ci
   9 2 atclr  draw-status ;
 
 \ --- live edit: type a new target into the TUI ------------------------------
-\ Read a line of Forth and re-target the stepper. Tokens read as you'd expect —
-\ numbers are pushed (the new args), words are executed (stack setup) — except the
-\ LAST word, which becomes the word to step. So `2 3 + square` pushes 5 and steps
-\ square; `7 abs` steps abs on 7. (Definitions go at the REPL before launching.)
+\ `e` reads a line of Forth and re-targets the stepper. Tokens read as you'd expect:
+\ numbers push (the new args), words run as setup, and the LAST token is the word to
+\ step — `2 3 + square` runs `+` (->5) then steps square; `3 square` steps square on 3.
+\ The target must be a *colon definition* (you can't step a primitive or an unknown
+\ word — those flash `<word> ?` and leave the current stepping untouched). Make new
+\ definitions at the REPL before launching; the edit line composes existing words.
 variable lbuf  88 allot
-variable lblen  variable lcur  variable pend
+variable lblen  variable lcur
+variable pa  variable pl  variable pf           \ previous token (addr,len) + have-prev
 : clear-stack ( -- )  begin  depth 0 >  while  drop  repeat ;
 : lc@    ( -- c )  lbuf lcur @ + c@ ;
 : lc-ws? ( -- f )  lc@ 32 =  lc@ 9 =  or  lc@ 10 =  or ;
@@ -162,20 +165,22 @@ variable lblen  variable lcur  variable pend
   begin  lcur @ lblen @ <  lc-ws?     and  while  lcur @ 1+ lcur !  repeat
   lbuf lcur @ +  0
   begin  lcur @ lblen @ <  lc-ws? 0=  and  while  1+  lcur @ 1+ lcur !  repeat ;
-: do-token ( addr len -- )                     \ number -> push; word -> defer-execute
-  2dup number if
-    >r 2drop r>                                \ keep the value as an arg
-  else
-    drop  find  dup if
-      >r                                          \ stash the new CFA off the data stack...
-      pend @ if  pend @ execute  then             \ ...so the previous word runs on clean args
-      r>  pend !                                  \ this word becomes the pending target
-    else  drop  then                             \ unknown token: ignore
-  then ;
-: parse-line ( -- target )                     \ interpret lbuf; last word = target CFA
-  0 lcur !  0 pend !
-  begin  token dup  while  do-token  repeat  2drop
-  pend @ ;
+: last-token ( -- addr len )                   \ the LAST token of lbuf (0 0 if none)
+  0 lcur !  0 pa !  0 pl !
+  begin  token dup  while  pl !  pa !  repeat  2drop
+  pa @  pl @ ;
+: colon? ( addr len -- f )                     \ is this token the name of a colon definition?
+  find  dup if  @ 'docol =  else  drop 0  then ;
+: setup-token ( addr len -- )                  \ a non-target token: number push / word run
+  2dup number if  >r 2drop r>
+  else  drop  find  dup if  execute  else  drop  then  then ;
+: run-setup ( -- target )                      \ run every token but the last; the last = target
+  0 lcur !  0 pf !
+  begin  token dup  while                       ( addr len )
+    pf @ if  >r >r  pa @ pl @ setup-token  r> r>  then   \ flush prev; keep this token off the
+    pl !  pa !  -1 pf !                                   \ data stack (setup-token pushes args)
+  repeat  2drop
+  pf @ if  pa @ pl @ find  else  0  then ;
 : read-line ( -- )                             \ read+echo a line into lbuf; Enter ends it
   0 lblen !
   begin
@@ -189,8 +194,12 @@ variable lblen  variable lcur  variable pend
   0 until ;
 : edit-target ( -- )                           \ prompt, read a line, re-target the stepper
   9 2 atclr  [char] > emit space  show-cursor
-  clear-stack  read-line  hide-cursor
-  parse-line  dup 0= if  drop ecfa @  then  einit ;
+  read-line  hide-cursor
+  last-token  2dup colon? if                    ( addr len )
+    2drop  clear-stack  run-setup  einit         \ valid colon target: re-target
+  else                                           \ unknown / primitive / empty: flash, keep current
+    9 2 atclr  3 fg  type  space [char] ? emit  reset  key drop
+  then ;
 
 \ --- the event loop ----------------------------------------------------------
 : ember ( cfa -- )                \ usage:  <args> ' <word> ember

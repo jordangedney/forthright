@@ -148,7 +148,7 @@ own call stack — so the `code` panel switches to the callee and `call` shows t
 `cube > square`, exactly like the Python ember hopping into a definition (primitives
 stay atomic). It also **follows control flow**: `0branch` pops the live flag and
 `branch` moves the cursor, so `if/else` and `begin/until` loops step too. `r` runs to
-the end, and **`e` is a live edit line** — type `3 square` or `2 3 + abs` to re-target
+the end, and **`e` is a live edit line** — type `3 square` or `2 3 + square` to re-target
 the stepper in place (numbers push, words run as setup, the last word is stepped), no
 restart needed. The `ember-fr` script is a convenience/test wrapper (it adds a pty so
 keystrokes can be scripted: `./ember-fr --selftest`). ember.fr *simulates* the engine;
