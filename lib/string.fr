@@ -4,20 +4,9 @@ include lib/prelude.fr			\ depends on: prelude (+ kernel s" cmove fill type)
 \ Strings here are (addr len) pairs (what s" leaves). `count` unpacks a counted
 \ string (a leading length byte). Build strings in the dictionary with c, / s, .
 
+\ (String equality `s= ( a1 n1 a2 n2 -- f )` is already a kernel primitive.)
 : count  ( c-addr -- addr n )  dup 1+ swap c@ ;	\ counted string -> addr len
 : blank  ( addr n -- )         32 fill ;	\ fill with spaces
 : c,     ( c -- )              here c! 1 allot ;	\ append one byte at HERE
 : s,     ( addr n -- )         dup >r  here swap cmove  r> allot ;	\ append n bytes at HERE
 : place  ( addr n dst -- )     2dup c!  1+ swap cmove ;	\ store as a counted string at dst
-
-\ s= — byte-for-byte string equality (length first, then bytes).
-variable sa  variable sn  variable sb  variable sm  variable si
-: s= ( a1 n1 a2 n2 -- f )
-  sm ! sb ! sn ! sa !
-  sn @ sm @ = 0= if  0 exit  then		\ different lengths -> not equal
-  0 si !
-  begin  si @ sn @ <  while
-    sa @ si @ + c@   sb @ si @ + c@   = 0= if  0 exit  then
-    si @ 1+ si !
-  repeat
-  -1 ;

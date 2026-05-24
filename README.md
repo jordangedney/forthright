@@ -70,17 +70,18 @@ Build and run (it's a REPL — reads Forth from stdin until EOF):
     ./fr                          # or type at it interactively; Ctrl-D to quit
 
 The **kernel** (raw `./fr`) knows only the irreducible primitives: `dup drop swap`,
-memory `@ ! c@ c! here allot`, return stack `>r r> r@`, arithmetic `+ - * / mod`,
-`= <`, `and or`, I/O `. emit type word find number s= [char]`, `variable constant
-latest sys execute sp@ sp0`, the raw syscall `syscall6`, `bye`, and the compiling words
-`: ; if else then begin until while repeat \ (`.
-Load **prelude.fr** for the rest (`over rot nip 2dup 2drop negate 1+ 1- cells cell+
-> 0= , char cr space square u.`). Numbers (incl. negatives) push themselves; unknown
-tokens echo back with `?`.
+memory `@ ! c@ c! here allot` + bulk `cmove fill`, return stack `>r r> r@`, arithmetic
+`+ - * /`, bitwise `and or xor lshift rshift`, `= <`, I/O `. emit type word find number
+s= [char]`, string literals **`s" … "` / `." … "`**, `variable constant latest sys
+execute sp@ sp0`, the raw syscall `syscall6`, **`include`** (load another source file),
+`bye`, and the compiling words `: ; if else then begin until while repeat \ (`.
+Load the rest from **`lib/`** — `include lib/prelude.fr` (`over rot nip 2dup negate 1+
+cells > 0= , char cr space square u.`), then `lib/math.fr`, `lib/string.fr`, etc. (see
+`lib/README.md`). Numbers (incl. negatives) push themselves; unknown tokens echo with `?`.
 
     echo ': cube dup dup * * ;  4 cube .' | ./fr                                # -> 64
-    ( cat prelude.fr; echo ': abs dup 0 < if negate then ;  -5 abs .' ) | ./fr   # -> 5
-    ( cat prelude.fr; echo ': cd begin dup . 1 - dup 0 = until drop ;  5 cd' ) | ./fr
+    ( cat lib/prelude.fr; echo ': abs dup 0 < if negate then ;  -5 abs .' ) | ./fr   # -> 5
+    ( cat lib/prelude.fr; echo ': cd begin dup . 1 - dup 0 = until drop ;  5 cd' ) | ./fr
 
 Engine conventions: `%rsi`=IP, `%rsp`=data stack, `%rbp`=return stack, `%rax`=W.
 `NEXT` is the inner interpreter; `docol`/`EXIT` drive the return stack. The outer
@@ -134,7 +135,7 @@ data stack with `PEEKDATA`. The view is a **full-screen, responsive** Nord dashb
 It runs with **no Python at all**: the kernel loads the library from its file arguments,
 the terminal is the tty `raw-on` needs, and you type a command at the prompt:
 
-    ./fr prelude.fr term.fr ptrace.fr ember.fr     # then type:  5 ' square ember
+    ./fr ember.fr     # then type:  5 ' square ember
     ./ember-fr                                      # ...or the shell launcher (boots to a prompt)
     ./ember-fr ": cube dup square * ;  3 ' cube ember"   # it pre-runs whatever you pass
 
@@ -176,11 +177,11 @@ trust chain (language + checker) stays small enough to audit. Load it, then eith
 infer a phrase's effect or define-and-check a word against its declared signature
 (effects print as `( x.. -- y.. )`, one glyph per cell):
 
-    ( cat prelude.fr anvil.fr; echo 'check{ dup dup * * }' )       | ./fr  # ( x -- y )
-    ( cat prelude.fr anvil.fr; echo 'def sq ( n -- n ) dup * ;' )  | ./fr  # sq ( x -- y )  ok
-    ( cat prelude.fr anvil.fr; echo 'def bad ( a b -- c ) + + ;' ) | ./fr  # BAD ( xx -- y )
+    echo 'check{ dup dup * * }'       | ./fr anvil.fr   # ( x -- y )
+    echo 'def sq ( n -- n ) dup * ;'  | ./fr anvil.fr   # sq ( x -- y )  ok
+    echo 'def bad ( a b -- c ) + + ;' | ./fr anvil.fr   # BAD ( xx -- y )
 
-(anvil.fr builds on `prelude.fr`, fr's standard library — see below.)
+(anvil.fr `include`s `lib/prelude.fr`, so loading it gives you the whole vocabulary — see below.)
 
 It keeps a name→`(consumes,produces)` table (`prim` for built-ins, `def` for new
 words). `check{ … }` / `def` read tokens, classify each (number / known word /
@@ -196,7 +197,7 @@ breadth-first generator builds candidate threaded bodies; the self-hosted `anvil
 (`check-body`) verifies each one's stack effect; shape-valid candidates are run
 (`execute`) on examples to confirm intent; the first passing both is "forged":
 
-    ( cat prelude.fr anvil.fr forge.fr; echo forge ) | ./fr
+    echo forge | ./fr forge.fr        # forge.fr includes prelude + anvil
 
       1+ ?
       dup + ?          ← right shape ( n -- n ), wrong value
@@ -226,14 +227,19 @@ new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checki
 - [x] Parsing / strings / output: `word find number s= char [char] emit type cr`
       — the toolkit to read source, match names, and print a report (~2.8 KB text)
 - [x] Kernel extras: `exit and or begin while repeat`, comments `\` `(`, division
-      `/ mod`, return stack `>r r> r@`, and `latest` (dictionary introspection)
-- [x] **prelude.fr** — fr's standard library, *everything* derivable pulled out of
-      the assembly kernel and written in fr: `over rot nip 2dup 2drop`, `negate 1+
-      1- cells cell+`, `> 0=`, `, char cr space square`, and `u.` (a decimal printer
-      built from `/mod`). `over`/`rot` are defined via `>r`/`r>`. The rule: if a word
-      can be written in fr, it lives here, not in fr.s — which is now down to ~2.9 KB
-      of irreducible primitives + the parse/compile/IO bootstrap. Load with
-      `( cat prelude.fr prog.fr ) | ./fr`. (anvil.fr builds on it.)
+      `/`, return stack `>r r> r@`, and `latest` (dictionary introspection)
+- [x] **Library primitives** in the kernel — the irreducible pieces a real library needs:
+      **`include PATH`** (load another source file then resume — a nested input-source
+      stack + load-once registry, so files declare their own deps and apps run as
+      `./fr app.fr`); **`s" … "` / `." … "`** string literals (inline, IMMEDIATE; advance
+      the IP relative to the bytes since the dict is packed); and bulk/bitwise
+      `cmove fill xor lshift rshift`.
+- [x] **`lib/`** — a self-hosted standard library, TUI-oriented (see `lib/README.md`):
+      `prelude` (core: `over rot nip 2dup negate 1+ cells > 0= , char cr space square u.`,
+      `see`, `trace`), `math`, `string`, `fmt` (number formatting), `term` (ANSI+termios),
+      `key` (escape-seq → `KEY-*`), `draw` (panels/rules), `tui` (label/status-bar/menu/
+      accept), `time`, `io`. Each `include`s its deps; `examples/demo.fr` shows them compose.
+      The rule still holds: if a word can be written in fr, it lives in a lib module, not `fr.s`.
 - [x] **`see`** (prelude.fr) — a self-hosted thread decoder: it walks fr's own
       dictionary (via `latest`) and the kernel's `sys` table of engine CFAs to
       disassemble any definition. `see square` → `dup * ;`; `see abs` →

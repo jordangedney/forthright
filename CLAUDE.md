@@ -20,24 +20,37 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the
   crucially ptrace/fork/wait4 (so even the debugger backend is reachable from fr). `syscall3`
   is now a prelude word derived from it. ABI: number in `%rax`, args in `%rdi %rsi %rdx %r10
   %r8 %r9` (arg4 is `%r10`, not `%rcx`); `%rsi` is the Forth IP so arg2 is parked + IP saved.
+  Other kernel primitives that exist because they enable a real **library** (and are slow/ugly
+  to derive): **`include PATH`** (load another source file, then resume — a nested input-source
+  stack saving the parent fd + its unparsed inbuf remainder; *load-once* via a path registry,
+  so diamond deps load once), **`s" …"` / `." …"`** string literals (IMMEDIATE; compile an
+  inline `(s")`/`(.")` runtime + `[count][bytes][pad]`, advancing the IP **relative** to the
+  bytes since the packed dict isn't cell-aligned; interpreted, they act immediately — the
+  interpret-mode `s"` buffer is transient), and **`cmove fill xor lshift rshift`**.
 - **`ember`** — a Python/curses TUI that single-steps the engine and visualizes it. By
   default it drives the *real* `fr` binary under `ptrace`; `--python` uses an equivalent
   pure-Python model. At startup it **bootstraps `prelude.fr`** into the traced fr (so
   `see`, `over`, etc. are available), and `run`/bootstrap use an int3 breakpoint at the
   `read` syscall + `PTRACE_CONT` to run fr at native speed (single-stepping is only for the
   interactive `s`).
-- **`prelude.fr`** — fr's standard library: everything derivable, written in fr
+- **`lib/`** — the self-hosted standard library (see `lib/README.md`). Files load each
+  other with the kernel's **`include`**, so a program just `include lib/tui.fr` and runs as
+  `./fr myapp.fr`. Modules: `prelude` (core), `math`, `string`, `fmt`, `term` (ANSI+termios),
+  `key` (escape-seq decoding → `KEY-*`), `draw` (panels/rules), `tui` (label/status-bar/menu/
+  accept), `time`, `io`, `ptrace`. **Paths are resolved from the project root** (CWD), not the
+  including file. The `anvil`/`forge`/`ember` tools live at the repo root and `include lib/…`.
+- **`lib/prelude.fr`** — fr's core vocabulary: everything derivable, written in fr
   (`over rot nip 2dup 2drop negate 1+ 1- cells cell+ > 0= , char cr space square u.`;
   `over`/`rot` use `>r`/`r>`). The rule: **if a word can be defined in fr, it goes in
-  `prelude.fr`, not in `fr.s`** (the kernel is ~2.9 KB of irreducible primitives + the
-  parse/compile/IO bootstrap). Load it before any program that needs it:
-  `( cat prelude.fr yourprog.fr ) | ./fr`. It also defines **`see`** — a self-hosted
+  `lib/prelude.fr` (or another lib module), not in `fr.s`** (the kernel is irreducible
+  primitives + the parse/compile/IO bootstrap). Pulled in by every other module via
+  `include lib/prelude.fr`. It also defines **`see`** — a self-hosted
   thread decoder (`see square` → `dup * ;`) that walks the dictionary via `latest` and
   the kernel's `sys` table (which exposes the headerless engine CFAs docol/lit/exit/
   branch/0branch). This is the fr-native analog of ember's introspection. `key ( -- c )`
   reads one byte from stdin via `syscall3` (the input primitive the fr-native TUIs use).
-- **`term.fr`** — terminal control written in fr, loaded after the prelude
-  (`cat prelude.fr term.fr …`). ANSI output (`clear at fg bg sgr bold reset
+- **`lib/term.fr`** — terminal control written in fr (`include lib/term.fr`, which pulls
+  the prelude). ANSI output (`clear at fg bg sgr bold reset
   hide-cursor show-cursor`; `cleol`/`atclr` for flicker-free in-place redraw; `fg24` +
   a `nord-*` true-colour palette; `box` + UTF-8 line glyphs for the bordered dashboard) and
   termios raw/cbreak mode via `ioctl` (`raw-on`/`raw-off` clear `ICANON|ECHO`; `raw-timed`/
@@ -66,8 +79,8 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the
   `<word> ?`). At the thread's top-level `EXIT`, `l-step` calls `e-finish`: snapshot the data
   stack into `esaved`, kill the child, and **rest** (it doesn't `bye`/exit), so the result
   carries to the next line — `5 5 5 +` rests at `10 5`, then `3 *` → `30 5`. (`e-rest` gates
-  this to the interactive explorer; `ember-trace` leaves it off and runs to `bye`.) Run with **no Python**: `./fr prelude.fr term.fr ptrace.fr
-  ember.fr`, then type `5 ' square ember` (or the one-line `./ember-fr` shell launcher — the
+  this to the interactive explorer; `ember-trace` leaves it off and runs to `bye`.) Run with
+  **no Python**: `./fr ember.fr`, then type `5 ' square ember` (or the one-line `./ember-fr` shell launcher — the
   terminal *is* the tty `raw-on` needs). `ember-trace` is its non-interactive core (prints the
   live stack per dispatch). The lighter, no-ptrace text stepper is the prelude's `trace`. ember.fr
   now matches the Python `ember`'s panels, keys, and behavior; the Python one is just a reference UI.
@@ -83,7 +96,7 @@ kernel `fr` plus a stack of self-hosted `.fr` tools (and a Python explorer); the
 - **`forge.fr`** — the generate → check → repair loop, **self-hosted in fr**: a generator
   builds candidate threaded bodies, the self-hosted `anvil` (`check-body`) verifies each
   one's stack effect, shape-valid candidates are `execute`d on examples, and the first
-  passing both is "forged". Run: `( cat prelude.fr anvil.fr forge.fr; echo forge ) | ./fr`.
+  passing both is "forged". Run: `echo forge | ./fr forge.fr` (forge includes prelude + anvil).
   Needed `execute` (kernel prim, run a CFA), `'` (prelude tick), and the anvil `check-body`
   refactor (check a compiled body by CFA, not stdin tokens). `forge-reference.py` = Python spec.
 
@@ -97,26 +110,27 @@ are all self-hosted; with `syscall6`, even ember's ptrace debugger backend is no
 The Python `ember` remains only as the *more mature* explorer UI (Nord curses, dictionary
 panel), not a capability fr lacks. The `anvil-reference.py`/`forge-reference.py` *reference
 specs* track intended behavior and **must be kept in sync as those tools gain features**. The
-fr explorer runs with no Python (`./fr prelude.fr term.fr ptrace.fr ember.fr`, or the one-line
+fr explorer runs with no Python (`./fr ember.fr`, or the one-line
 shell `./ember-fr`); `ember-pty` is a Python harness only for *scripted* (paced) testing.
 
 ## Commands
 
+**Run fr from the project root** — `include` paths (`lib/…`) are CWD-relative.
 ```sh
 ./build.sh                 # assemble + link fr  (as --gstabs ; ld) -> ./fr
 echo '3 4 + 5 * .' | ./fr  # fr is a REPL: reads Forth from stdin until EOF
 ./fr                       # interactive; Ctrl-D / `bye` to quit
-( cat prelude.fr anvil.fr; echo 'check{ dup dup * * }' ) | ./fr   # self-hosted verifier -> ( x -- y )
+echo 'check{ dup dup * * }' | ./fr anvil.fr     # self-hosted verifier -> ( x -- y )  (anvil includes prelude)
+echo '5 square .' | ./fr lib/prelude.fr         # load a lib module as a file arg, then read stdin
+./fr examples/demo.fr                           # a TUI sample using the lib (math/fmt/draw/tui)
 
 ./ember                    # Python TUI driving the real ./fr via ptrace (Linux; needs ~76x20)
-./ember --python           # TUI on the pure-Python model instead
-./ember --selftest         # headless check of the Python model  (the "test suite")
-./ember --native-selftest  # headless check that drives ./fr under ptrace
+./ember --selftest         # headless check of the Python model; --native-selftest drives ./fr
 
-./fr prelude.fr term.fr ptrace.fr ember.fr   # the SELF-HOSTED explorer (then type: 5 ' square ember)
+./fr ember.fr              # the SELF-HOSTED explorer (it `include`s lib/{prelude,term,ptrace}); type: 5 ' square ember
 ./ember-fr ["3 ' square ember"] # shell launcher (no Python); no arg = bare `ember` (edit prompt)
-./ember-pty --selftest          # headless pty test of ember.fr; also --edit-selftest
-./test.sh                       # core suite: kernel/prelude/anvil/forge/term + reference specs
+./ember-pty --selftest          # headless pty test of ember.fr; also --edit/--repl/--out-selftest
+./test.sh                       # core suite: kernel/prelude/lib/anvil/forge/term + reference specs
 ./test-ember.sh                 # the explorer's own suite (ptrace, ember.fr, Python ember)
 ./test.sh --all                 # both suites
 ```
@@ -169,7 +183,13 @@ chunk size (a pipe, a pty, a 1-byte dribble) without splitting. `_refill` reads 
 which `_next_source` walks through the `argv` files (`argv[1..]`) and then stdin: so
 `./fr a.fr b.fr` loads those files in order and then drops to the stdin REPL (a missing file is
 skipped). `argc`/`argv` are captured in `_start` before `%rsp` becomes the data stack. This is
-what lets the self-hosted explorer run with no launcher: `./fr prelude.fr term.fr ptrace.fr ember.fr`.
+what lets the self-hosted explorer run with no launcher: `./fr ember.fr`. **`include`** nests
+on top of this: it pushes a frame (`incl_stack`) saving the current fd + the unparsed `inbuf`
+remainder, switches `var_infd` to the new file, and `_refill` pops the frame on EOF (restoring
+the parent's inbuf) before falling through to `_next_source`. A path registry (`incl_registry`)
+makes it load-once. **`s"`/`."`** compile an inline `(s")`/`(.")` runtime cell + `[count][bytes]`
+padded to a cell; the runtime and the compiler both advance **relative to the bytes** (not to an
+absolute 8-boundary), because the packed dictionary is not cell-aligned (`CFA = header+9+len`).
 **Gotcha when scripting:** `_refill`'s read uses `%rsi` (saved/restored), and `syscall` clobbers
 `%rcx` — the mid-token refill in `_word` therefore `push`/`pop`s `%rcx` (the live token length).
 

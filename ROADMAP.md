@@ -11,10 +11,13 @@ library written in itself, a stack-effect verifier (`anvil`) written in fr, and 
 generate→check→repair loop (`forge`) that synthesizes verified words — all
 self-hosting, trust base small enough to read in a sitting. The *explorer* is
 self-hosted too now: `syscall6` opened the OS to fr, so `ptrace.fr` + `ember.fr` (a
-visual stepper driving the **real** engine under ptrace) run with no Python. What's
-*not* done is making the loop **real** (a
-true AI generator), **deep** (verification beyond stack shape), or **complete** (fr
-building its own kernel). Those are the three arcs below.
+visual stepper driving the **real** engine under ptrace) run with no Python. There's
+now a real **module system** (`include`, load-once) and a **`lib/` standard library**
+(math, string, fmt, term, key, draw, tui, time, io) on a few new kernel primitives
+(`include`, `s"`/`."` string literals, `cmove fill xor lshift rshift`), so building
+TUI apps in fr is ergonomic (`./fr app.fr`). What's *not* done is making the loop
+**real** (a true AI generator), **deep** (verification beyond stack shape), or
+**complete** (fr building its own kernel). Those are the three arcs below.
 
 ## Principles to keep (don't break these)
 
@@ -135,4 +138,10 @@ That's the whole bet, and it's within reach from here.
 - Push `s= find number` to the prelude; shrink the kernel.            `fr.s` / `prelude.fr`
 - Wire an LLM generator into `forge-reference.py`; print the repair dialogue. `forge-reference.py`
 - `do … loop` (counted loops) as immediate words.                               `fr.s`
+- `create … does>` — so data structures (e.g. a menu's item array) build cleanly.  `fr.s`
+- Interpret-mode `s"` uses one transient buffer (two in a phrase alias) — rotate a
+  small set of buffers so `s" a" s" b" s=` works interpreted, not just compiled.    `fr.s`
+- `include` paths resolve from the CWD, not the including file — track the current
+  file's dir for relative includes (so `lib/` files could `include term.fr`).        `fr.s`
+- Grow `lib/tui.fr`: scrolling lists, multi-field forms, a draw-into-buffer screen.  `lib/tui.fr`
 - The commit history (`git log --oneline`) is the build narrative if you want the path here.

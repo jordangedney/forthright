@@ -72,7 +72,7 @@ it correct.
 `argv` file (`O_RDONLY`), then finally stdin (once), then signals true EOF. `argc`/`argv`
 are grabbed in `_start` before `%rsp` is repurposed as the data stack; a missing file is
 skipped (open returns negative → try the next). **Why:** this is what lets the
-self-hosted explorer run with **no launcher** — `./fr prelude.fr term.fr ptrace.fr ember.fr`
+self-hosted explorer run with **no launcher** — `./fr ember.fr`
 loads the library from disk and leaves fd 0 as the real tty, which `raw-on`/`key` need. It also
 retires the `cat a.fr b.fr | ./fr` idiom (though that still works). Capped at "files then
 stdin" deliberately — no `include`-from-source, no search path; just enough to bootstrap.
@@ -129,7 +129,7 @@ stack base (`sp0`) for free. The Python `ember` stays only as a *more mature UI*
 ### `ember.fr` runs with no launcher; `ember-fr` is a one-line shell exec
 `raw-on` does an `ioctl` on fd 0, which fails on a pipe — so `ember.fr` needs a real tty.
 But for *interactive* use the **terminal already is that tty**, and the kernel loads the
-library from `argv`, so launching is just `./fr prelude.fr term.fr ptrace.fr ember.fr` —
+library from `argv`, so launching is just `./fr ember.fr` —
 no Python (`ember-fr` is exactly that one-line `exec`). The Python that *was* `ember-fr`
 only existed to pace scripted keystrokes through a pty (a pipe can't — fr's first read
 would swallow them); that's purely a *test* concern, now isolated in `ember-pty`. **Why

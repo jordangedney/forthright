@@ -21,12 +21,13 @@ and **forges** its own verified code.
 |---|---|
 | `fr.s` | the kernel: a freestanding x86-64 Forth (~3 KB, no libc) in GNU assembler |
 | `fr` | the built binary (a REPL reading stdin) |
-| `prelude.fr` | fr's standard library — everything derivable, written *in fr* |
+| `lib/` | the self-hosted standard library (`prelude math string fmt term key draw tui time io ptrace`); files `include` their deps — see `lib/README.md` |
+| `lib/prelude.fr` | fr's core vocabulary — everything derivable, written *in fr* |
 | `anvil.fr` | a stack-effect **verifier**, written *in fr* |
 | `forge.fr` | generate→check→repair loop, written *in fr* (synthesizes verified words) |
-| `term.fr` | terminal control *in fr*: ANSI escapes + termios raw mode (the TUI substrate) |
+| `lib/term.fr` | terminal control *in fr*: ANSI escapes + termios raw mode (the TUI substrate) |
 | `ember` | a Python/curses TUI that `ptrace`s the real `fr` and animates it |
-| `ptrace.fr` | ptrace *in fr* (`syscall6`); `watch` drives the real engine — a self-hosted NativeVM |
+| `lib/ptrace.fr` | ptrace *in fr* (`syscall6`); `watch` drives the real engine — a self-hosted NativeVM |
 | `ember.fr` | the **self-hosted explorer**: a visual stepper driving the *real* engine via ptrace |
 | `ember-fr` | shell launcher: runs `ember.fr`; no arg = bare `ember` (edit prompt), or pass a command |
 | `ember-pty` | Python harness for *scripted* (paced) pty testing of `ember.fr` |
@@ -49,18 +50,19 @@ echo '2 3 + .' | ./fr                   # -> 5   (RPN: push 2, push 3, add, prin
 library by naming the files, or by concatenating into stdin — both work:
 
 ```sh
-./fr prelude.fr                          # load prelude, then read stdin (the REPL)
-echo '5 square .' | ./fr prelude.fr      # load prelude (file), run a command (stdin) -> 25
-( cat prelude.fr; echo ': abs dup 0 < if negate then ;  -7 abs .' ) | ./fr   # -> 7
-( cat prelude.fr anvil.fr; echo 'def sq ( n -- n ) dup * ;' ) | ./fr          # anvil: sq ok
-( cat prelude.fr anvil.fr forge.fr; echo forge ) | ./fr                       # synthesize
-./fr prelude.fr term.fr ptrace.fr ember.fr   # the self-hosted explorer (then type: 5 ' square ember)
+./fr lib/prelude.fr                          # load prelude, then read stdin (the REPL)
+echo '5 square .' | ./fr lib/prelude.fr      # load prelude (file), run a command (stdin) -> 25
+echo ': abs dup 0 < if negate then ;  -7 abs .' | ./fr lib/prelude.fr   # -> 7
+echo 'def sq ( n -- n ) dup * ;' | ./fr anvil.fr          # anvil: sq ok
+echo forge | ./fr forge.fr                       # synthesize
+./fr ember.fr   # the self-hosted explorer (then type: 5 ' square ember)
 ./ember                                  # the Python ptrace TUI (loads the prelude itself)
 ```
 
-The layering rule: **prelude.fr** needs the kernel; **anvil.fr** needs the prelude;
-**forge.fr** needs both; **term.fr**/**ember.fr** need the prelude. Name them (or `cat`
-them) in that order before your program.
+Each file `include`s what it needs (the kernel's `include` is load-once), so you don't
+hand-order dependencies — `./fr anvil.fr`, `./fr forge.fr`, `./fr ember.fr` all just work,
+and your own program starts with e.g. `include lib/tui.fr`. (Run fr from the project root:
+`include` paths like `lib/…` are resolved relative to the current directory.)
 
 ---
 
@@ -84,7 +86,9 @@ after them (`\ note`, `( note )`) — they are parsed as words.
 - **`.` prints a number followed by a NEWLINE.** `u.` (unsigned) and `.n` (signed)
   print with no newline — use those for inline/formatted output.
 - **Case-sensitive.** `dup` works; `DUP` is unknown.
-- **No string literals** (`s"`/`."`). Print text by emitting chars: `[char] A emit`.
+- **String literals:** `." text"` prints text; `s" text"` pushes `( addr len )`. Compiled
+  (in a `:` def) each has its own storage; **interpreted, the `s"` buffer is transient**
+  (two `s"` in one phrase alias it — copy one out with `cmove`/`place`).
 - **Division is signed** (`/ mod`); dividing by zero faults (SIGFPE).
 - **Source can come from files or stdin.** `./fr a.fr b.fr` loads those files in
   order, then reads stdin; `cat a.fr b.fr | ./fr` still works too. Tokens and comments
@@ -99,11 +103,13 @@ after them (`\ note`, `( note )`) — they are parsed as words.
 |---|---|
 | stack | `dup (a-aa)` `drop (a-)` `swap (ab-ba)` |
 | return stack | `>r (x-)` `r> (-x)` `r@ (-x)` — push/pop/copy to the return stack; **must balance within a word** |
-| memory | `@ (a-x)` `! (x a-)` `c@ (a-b)` `c! (b a-)` `here (-a)` `allot (n-)` |
-| arithmetic | `+ - * / mod` (signed) |
-| compare / logic | `= (ab-f)` `< (ab-f)` `and or` (bitwise) |
+| memory | `@ (a-x)` `! (x a-)` `c@ (a-b)` `c! (b a-)` `here (-a)` `allot (n-)` · bulk `cmove (src dst n-)` `fill (a n c-)` |
+| arithmetic | `+ - * /` (signed) |
+| compare / logic | `= (ab-f)` `< (ab-f)` `and or xor` · `lshift (x n-)` `rshift (x n-)` |
 | output | `. (n-)` signed+newline · `emit (c-)` one byte · `type (a n-)` a string |
+| strings | `s" text"` push `(addr len)` · `." text"` print (both IMMEDIATE, inline) |
 | parse | `word (-a n)` next token · `find (a n - cfa\|0)` · `number (a n - n f)` · `s= (a1 n1 a2 n2 - f)` · `[char]` (immediate: compile next char) |
+| sources | `include PATH` — load another `.fr` file here, then resume (load-once) |
 | reflection | `latest (-hdr)` newest dict entry · `sys (-addr)` engine-CFA table · `execute (cfa-)` run a word · `sp@ (-a)` top-item addr · `sp0 (-a)` empty-stack base |
 | system | `syscall6 (a1 a2 a3 a4 a5 a6 n - ret)` raw Linux syscall, up to 6 args (`n` = number); reaches mmap, ptrace, fork, wait4, … |
 | define | `: ;` colon defs · `variable name` (name pushes its cell addr) · `n constant name` (name pushes n) |
@@ -126,7 +132,7 @@ after them (`\ note`, `( note )`) — they are parsed as words.
 | stack tools | `depth (-n)` · `.s` print the stack (non-destructive) · `trace` step a word on the live stack, printing each step (the self-hosted analog of ember's step view; straight-line + literals only) |
 | demo | `square` |
 
-**Terminal control** (`term.fr`, written in fr; load after the prelude — `cat prelude.fr term.fr …`):
+**Terminal control** (`lib/term.fr`, written in fr; `include lib/term.fr` — it pulls the prelude):
 
 | group | words |
 |---|---|
@@ -136,7 +142,7 @@ after them (`\ note`, `( note )`) — they are parsed as words.
 | raw input | `raw-on`/`raw-off` enter/leave cbreak (clear `ICANON|ECHO` via ioctl) · `term-size (- rows cols)` · pair with prelude's `key (-c)` |
 | compose | `paint (row col colour -)` = `at` + `fg` |
 
-Try `see`: `( cat prelude.fr; echo 'see square' ) | ./fr` → `dup * ;`. It walks the
+Try `see`: `echo 'see square' | ./fr lib/prelude.fr` → `dup * ;`. It walks the
 dictionary and the `sys` table to print any word's threaded body.
 
 ---
@@ -229,7 +235,7 @@ correct program — see forge.
 **forge** (`forge.fr`) is the thesis end to end. A breadth-first generator builds
 candidate threaded bodies; `check-body` (anvil) gates them by stack effect; the
 shape-valid ones are `execute`d on examples to check intent; the first that passes
-both is forged. Run `( cat prelude.fr anvil.fr forge.fr; echo forge ) | ./fr`:
+both is forged. Run `echo forge | ./fr forge.fr`:
 ```
   dup + ?      ← anvil approved the shape ( n -- n ), but value test failed
   dup * <=     ← forged: right shape AND 5→25, 3→9
@@ -253,8 +259,8 @@ is — read it before changing something that looks odd.)
 ./build.sh                                   # must assemble + link cleanly
 echo '5 square .' | ./fr                      # (kernel-only smoke test, e.g. dup *)
 ./test-ember.sh                               # explorer: Python model + ptrace + ember.fr
-( cat prelude.fr anvil.fr; echo 'def bad ( a b -- c ) + + ;' ) | ./fr   # -> BAD
-( cat prelude.fr anvil.fr forge.fr; echo forge ) | ./fr                 # -> forges dup *
+echo 'def bad ( a b -- c ) + + ;' | ./fr anvil.fr   # -> BAD
+echo forge | ./fr forge.fr                 # -> forges dup *
 python3 anvil-reference.py --selftest         # the Python spec still agrees
 ```
 If you change `fr.s`, the ember `--native-selftest` (in `test-ember.sh`) is the best
@@ -266,13 +272,12 @@ process). `ember` reads the binary's symbols, so **keep `fr` unstripped** (`buil
 ## 8. A 60-second worked example
 
 ```sh
-( cat prelude.fr anvil.fr; cat <<'EOF'
+./fr anvil.fr <<'EOF'
 : avg ( a b -- c )  + 2 / ;      \ compile a runnable word
 6 10 avg .                        \ run it                            -> 8
 def avg ( a b -- c )  + 2 / ;     \ anvil checks the declared effect  -> avg ( xx -- y )  ok
 see avg                            \ disassemble the compiled word     -> + 2 / ;
 EOF
-) | ./fr
 ```
 The subtlety: `:` compiles a *runnable* word (so `6 10 avg .` and `see avg` work),
 while `def` is anvil *analyzing* the same source against its declared signature — it
@@ -298,7 +303,7 @@ ptrace: it forks a child, single-steps it, and shows a **full-screen, multi-pane
 stack read straight out of the process (`PEEKDATA`). `s` steps, `a` autoplays (`+`/`-`
 speed), `r` runs, `e` re-targets live, and a printing word's stdout is captured into the
 `out` panel (the child's fd 1/2 are piped, so it can't corrupt the TUI). Run it with no
-Python: `./fr prelude.fr term.fr ptrace.fr ember.fr`, then type `5 ' square ember`. fr
+Python: `./fr ember.fr`, then type `5 ' square ember`. fr
 writes, verifies, forges, and *watches its own engine run* — at full feature parity with the
 Python `ember`, which now stays only as a reference UI, not a capability fr lacks.
 
