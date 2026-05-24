@@ -11,6 +11,12 @@
 \   [x] implemented in the Python ember      [ ] not yet
 \   {need: ...} = fr capabilities required before this can be ported to fr
 
+\ UPDATE: the introspection half is now SELF-HOSTED in prelude.fr — `see` decodes
+\ any definition (the THREAD-panel content) and `trace` single-steps a word on the
+\ live stack, printing it each step (ember's step view, no ptrace/curses). What's
+\ left for a full self-hosted ember is the interactive TUI (raw-tty input via a
+\ `syscall`/ioctl primitive fr lacks; ANSI output is already reachable with u./.n).
+\
 \ === The model (the easy half — mostly arithmetic + memory) ===============
 \ [x] data stack + return stack mirrors of fr's two stacks   {need: @ ! arrays}
 \ [x] dictionary: link | flags+len | name | codeword, FIND by name

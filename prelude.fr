@@ -92,3 +92,37 @@ variable sp  variable done
     done @
   until
   cr ;
+
+\ --- the data stack, and a self-hosted execution tracer ----------------------
+\ `depth` counts items; `.s` prints them (bottom..top) non-destructively by
+\ reading memory, so it doesn't disturb the stack.
+: depth ( -- n )   sp@ sp0 swap -  8 / ;
+variable dsn
+: .s ( -- )
+  depth dsn !
+  1
+  begin  dup dsn @ 1+ <  while
+    sp0  over cells -  @  .n space        \ item j (from bottom) = *(sp0 - j cells)
+    1+
+  repeat  drop ;
+
+\ trace — step a word's body on the live data stack, printing the stack each
+\ step. The fr-native analog of ember's step view (no ptrace, no curses): it runs
+\ each cell with `execute` and shows the result. Straight-line + literals only —
+\ it stops at any branch (`if/begin/…`), which it can't step.
+variable tbp
+: trace-end? ( c -- f )  dup 'exit =  over 'branch =  or  swap '0branch =  or ;
+: trace ( -- )            \ usage:  <args> trace <word>
+  ' cell+ tbp !
+  begin
+    tbp @ @  dup trace-end?  0=
+  while
+    dup 'lit = if
+      drop  tbp @ 8 + @  [char] # emit  dup .n space   \ push & show the literal
+      tbp @ 16 + tbp !
+    else
+      dup .cfaname space  execute                       \ name it, run it
+      tbp @ 8 + tbp !
+    then
+    [char] > emit space  .s  cr
+  repeat  drop ;

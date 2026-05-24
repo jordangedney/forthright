@@ -734,6 +734,26 @@ code_EXECUTE:
 	pop %rax
 	jmp *(%rax)			# its NEXT/EXIT returns to our caller
 
+# Data-stack introspection (for `depth` / `.s` / `trace` in the prelude). The
+# data stack grows down from data_stack_top; the top item is at %rsp.
+h_SPAT:	.quad h_EXECUTE
+	.byte 3
+	.ascii "sp@"
+SPAT:	.quad code_SPAT			# ( -- addr )  address of the top item
+code_SPAT:
+	mov %rsp, %rax
+	push %rax
+	NEXT
+
+h_SP0:	.quad h_SPAT
+	.byte 3
+	.ascii "sp0"
+SP0:	.quad code_SP0			# ( -- addr )  the empty-stack base
+code_SP0:
+	mov $data_stack_top, %rax
+	push %rax
+	NEXT
+
 # ===========================================================================
 # Outer interpreter helpers (register-passing; never touch the data stack).
 
@@ -976,7 +996,7 @@ errmsg:	.ascii " ?\n"
 	.equ errmsg_len, . - errmsg
 
 	.data
-var_latest: .quad h_EXECUTE		# newest dictionary entry (head of FIND)
+var_latest: .quad h_SP0			# newest dictionary entry (head of FIND)
 systab:     .quad docol, LIT, EXIT, BRANCH, ZBRANCH	# headerless engine CFAs (for `see`)
 var_state:  .quad 0			# 0 = interpret, 1 = compile
 var_here:   .quad dict_space		# next free byte for new definitions
