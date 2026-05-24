@@ -12,7 +12,10 @@ holds two pieces:
   as a single GNU-assembler file `fr.s`. No libc, no runtime: raw syscalls + threaded code.
 - **`ember`** — a Python/curses TUI that single-steps the engine and visualizes it. By
   default it drives the *real* `fr` binary under `ptrace`; `--python` uses an equivalent
-  pure-Python model.
+  pure-Python model. At startup it **bootstraps `prelude.fr`** into the traced fr (so
+  `see`, `over`, etc. are available), and `run`/bootstrap use an int3 breakpoint at the
+  `read` syscall + `PTRACE_CONT` to run fr at native speed (single-stepping is only for the
+  interactive `s`).
 - **`prelude.fr`** — fr's standard library: everything derivable, written in fr
   (`over rot nip 2dup 2drop negate 1+ 1- cells cell+ > 0= , char cr space square u.`;
   `over`/`rot` use `>r`/`r>`). The rule: **if a word can be defined in fr, it goes in

@@ -310,9 +310,12 @@ def selftest():
 import ctypes  # noqa: E402
 
 PTRACE_TRACEME = 0
+PTRACE_PEEKTEXT = 1
+PTRACE_POKETEXT = 4
 PTRACE_CONT = 7
 PTRACE_SINGLESTEP = 9
 PTRACE_GETREGS = 12
+PTRACE_SETREGS = 13
 PTRACE_SETOPTIONS = 0x4200
 PTRACE_O_EXITKILL = 0x00100000
 
@@ -412,6 +415,7 @@ class NativeVM:
         self._start_process()
         self.log("native: tracing %s  (pid %d)" % (os.path.basename(frpath), self.pid))
         self._run_to_input()
+        self.read_bp = self._getregs().rip       # the read syscall addr (for fast CONT)
 
     # ---- process plumbing ----------------------------------------------
     def _ptrace(self, req, addr=0, data=0):
@@ -659,6 +663,68 @@ class NativeVM:
         while self.state not in ("input", "exited") and n < cap:
             self._advance(); n += 1
 
+    # ---- fast native execution (breakpoint at the read syscall) -------------
+    # Single-stepping every instruction is fine for watching one word, but far
+    # too slow to load the whole prelude or run a big word like `see`. So set an
+    # int3 breakpoint at the read syscall and PTRACE_CONT at native speed,
+    # stopping when fr next wants input. (The kernel never stops on a blocking
+    # read otherwise, and a signal would make our read return EINTR -> exit.)
+    def _peek(self, addr):
+        return self.libc.ptrace(PTRACE_PEEKTEXT, self.pid,
+                                ctypes.c_void_p(addr), None) & 0xFFFFFFFFFFFFFFFF
+
+    def _poke(self, addr, val):
+        self.libc.ptrace(PTRACE_POKETEXT, self.pid, ctypes.c_void_p(addr),
+                         ctypes.c_void_p(val & 0xFFFFFFFFFFFFFFFF))
+
+    def _setregs(self, regs):
+        self.libc.ptrace(PTRACE_SETREGS, self.pid, 0, ctypes.byref(regs))
+
+    def _run_fast(self):
+        """CONT until fr next blocks for input (or exits). `fed_pending` marks an
+        input-consuming read to step over; the read after that is the prompt."""
+        orig = self._peek(self.read_bp)
+        trap = (orig & ~0xff) | 0xCC
+        self._poke(self.read_bp, trap)
+        guard = 0
+        while True:
+            guard += 1
+            if guard > 100000:
+                self.error = "run guard tripped"; break
+            self.libc.ptrace(PTRACE_CONT, self.pid, 0, 0)
+            _, status = os.waitpid(self.pid, 0)
+            if os.WIFEXITED(status) or os.WIFSIGNALED(status):
+                self.exitcode = (os.WEXITSTATUS(status) if os.WIFEXITED(status)
+                                 else -os.WTERMSIG(status))
+                self.state = "exited"; self.halted = True; self.exec_name = ""
+                self._snapshot(None); return
+            if os.WSTOPSIG(status) != 5:           # not SIGTRAP: fr faulted (e.g. /0)
+                self.error = "fr stopped on signal %d" % os.WSTOPSIG(status)
+                self.state = "exited"; self.halted = True; self.exec_name = ""
+                self._snapshot(None); return
+            regs = self._getregs()                 # stopped on the int3 (rip = bp+1)
+            self._poke(self.read_bp, orig)         # restore the real syscall byte
+            regs.rip = self.read_bp; self._setregs(regs)
+            if self.fed_pending:                   # this read consumes our input
+                self.fed_pending = False
+                self._machinestep()                # execute the read
+                self._poke(self.read_bp, trap)     # re-arm and keep going
+                continue
+            break                                  # input exhausted -> at the prompt
+        self.state = "input"; self.halted = True
+        self._pause_refresh()
+
+    def bootstrap(self, text):
+        """Load a library (e.g. prelude.fr) into fr at native speed, leaving it
+        at the prompt with the full vocabulary defined."""
+        try:
+            os.write(self.stdin_w, (text + "\n").encode("utf-8"))   # comments may be UTF-8
+        except OSError:
+            return
+        self.fed_pending = True
+        self._run_fast()
+        self.output = []                           # discard any boot chatter
+
     # ---- UI-facing API --------------------------------------------------
     def feed(self, line):
         if self.state == "exited":
@@ -682,9 +748,9 @@ class NativeVM:
         self._advance()
 
     def run(self, cap=200000):
-        n = 0
-        while not self.halted and self.state == "step" and n < cap:
-            self._advance(); n += 1
+        if self.halted or self.state != "step":
+            return
+        self._run_fast()                         # native-speed run to the next prompt
 
 
 # ==========================================================================
@@ -1066,15 +1132,35 @@ def native_selftest():
     print("after cube:", vm.output[-3:])
     dict_names = [w.name for w in vm.words]
     print("dict has cube:", "cube" in dict_names)
-    ok = (any(o == "25" for o in vm.output) and any(o == "64" for o in vm.output)
-          and "cube" in dict_names and saw_25_with_5)
+    pre_ok = (any(o == "25" for o in vm.output) and any(o == "64" for o in vm.output)
+              and "cube" in dict_names and saw_25_with_5)
+
+    # bootstrap the prelude at native speed, then use a prelude word (see)
+    pf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prelude.fr")
+    see_ok = False
+    if os.path.exists(pf):
+        with open(pf) as f:
+            vm.bootstrap(f.read())
+        has_see = "see" in [w.name for w in vm.words]
+        vm.feed("see square"); vm.run()
+        print("after bootstrap: see present=%s, `see square` ->" % has_see, vm.output[-1:])
+        see_ok = has_see and any("dup * ;" in o for o in vm.output)
+
+    ok = pre_ok and see_ok
     print("\nNATIVE %s" % ("PASS" if ok else "FAIL"))
     return 0 if ok else 1
 
 
 def run_ui(stdscr, make_vm):
     curses.curs_set(0)
-    ui = UI(stdscr, make_vm())
+    vm = make_vm()
+    if getattr(vm, "native", False):            # give the real fr the full vocabulary
+        pf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prelude.fr")
+        if os.path.exists(pf):
+            with open(pf) as f:
+                vm.bootstrap(f.read())
+            vm.log("prelude.fr loaded — try:  see square   or   3 4 over")
+    ui = UI(stdscr, vm)
     ui.loop()
 
 

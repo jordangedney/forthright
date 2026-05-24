@@ -86,6 +86,10 @@ styled after the `design` (NEXT-runner) Nord palette and execution colour coding
 (ip=cyan, stack=orange, hop=purple, exec=yellow). You single-step the inner
 interpreter and *see* the IP walk a thread and the stacks change.
 
+At startup ember loads `prelude.fr` into the traced fr (at native speed, via a breakpoint
+at the `read` syscall), so prelude words work at the prompt — e.g. type `see square` and
+ember runs the self-hosted disassembler inside the real fr.
+
 By default it **drives the real `./fr` binary**: it launches it under `ptrace`,
 single-steps machine instructions, stops at every `jmp *(%rax)` (the ITC dispatch
 NEXT/EXECUTE perform), and reads the live registers and memory — `%rsi` is the IP,
