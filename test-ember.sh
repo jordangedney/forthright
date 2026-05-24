@@ -50,8 +50,12 @@ check "ptrace.fr: fr single-steps a child" "$( ( cat prelude.fr ptrace.fr; echo 
 # watch: fr drives the REAL fr engine under ptrace and decodes the live dispatch —
 # the self-hosted NativeVM. Tracing `5 square` must show square's body executing.
 check "ptrace.fr: watch traces real engine" "$( ( cat prelude.fr ptrace.fr; echo "5 ' square watch" ) | ./fr )" "square dup *"
+# live.fr: the visual stepper on the live backend. live-trace peeks the child's REAL
+# data stack at each dispatch — tracing 5 square must show it pass through 5 5 (after dup).
+check "live.fr: peeks the real data stack" "$( ( cat prelude.fr term.fr ptrace.fr live.fr; echo "5 ' square live-trace" ) | ./fr )" "5 5"
 
 # --- end-to-end backends (slower: a pty and a ptraced process) -----------------
+check "live.fr: visual TUI on real engine" "$(timeout 30 ./ember-fr --live-selftest)"               "EMBER-FR LIVE PASS"
 check "ember.fr: pty stepper 5->25"  "$(timeout 30 ./ember-fr --selftest)"        "EMBER-FR PASS"
 check "ember: Python model"          "$(./ember --selftest)"                      "ALL PASS"
 check "ember: native ptrace backend" "$(timeout 60 ./ember --native-selftest)"    "NATIVE PASS"

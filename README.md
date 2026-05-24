@@ -140,9 +140,10 @@ own call stack — so the `code` panel switches to the callee and `call` shows t
 stay atomic). It also **follows control flow**: `0branch` pops the live flag and
 `branch` moves the cursor, so `if/else` and `begin/until` loops step too. `r` runs to
 the end. The `ember-fr` script is a convenience/test wrapper (it adds a pty so
-keystrokes can be scripted: `./ember-fr --selftest`). The Python `ember` keeps what fr
-can't reach — the `ptrace` backend over real machine instructions, and its richer
-curses view (RETURN frames, dictionary, Nord palette).
+keystrokes can be scripted: `./ember-fr --selftest`). ember.fr *simulates* the engine;
+**`live.fr` drives the real one under ptrace** (see below), so the Python `ember` is no
+longer a capability fr lacks — only a more mature UI (RETURN frames, dictionary, Nord
+palette).
 
 ## Verifying it: anvil.fr (self-hosted)
 
@@ -247,5 +248,9 @@ new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checki
       dictionary *is* the child's), run a word in the child, single-step it from the parent,
       and decode `%rax` at each `jmp *(%rax)` dispatch. `5 ' square watch` →
       `… execute square dup * ; bye` — the real engine traced, observed entirely from fr.
-      So the debugger backend that "stayed in Python" now runs in fr too; the Python `ember`
-      remains the richer, already-built explorer, not a thing fr is incapable of.
+      So the debugger backend that "stayed in Python" now runs in fr too.
+- [x] **live.fr** — `ember`'s visual stepper, **on the live ptrace backend**: the TUI drives
+      the *real* engine (via `ptrace.fr`), reading the data stack with `PEEKDATA` out of the
+      running child. `5 ' square live` shows the `trail` of real dispatches and the live stack
+      stepping `5 → 5 5 → 25`. The Python `ember` is now only the *more mature* UI (Nord curses,
+      dictionary panel) — every capability it had, fr now has too.

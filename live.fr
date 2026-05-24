@@ -1,0 +1,105 @@
+\ live.fr — the visual stepper, driving the REAL fr engine under ptrace. Where
+\ ember.fr *simulates* stepping (it walks the threaded code itself), this watches the
+\ actual engine: it forks fr, runs a word in the child, and single-steps the child from
+\ the parent to each `jmp *(%rax)` dispatch boundary — reading the live data stack
+\ straight out of the running process with PTRACE_PEEKDATA. This is ember's "NativeVM"
+\ backend (the part that lived in Python), now in fr, with a term.fr UI on top.
+\
+\     ./fr prelude.fr term.fr ptrace.fr live.fr      then type:  5 ' square live
+\     ./ember-fr --live-selftest                     headless pty check
+\
+\ Forking (not exec) means the child shares fr's memory image, so the parent decodes
+\ the child's CFAs (`.dispatched`) and finds the stack base (`sp0`) for free.
+\ Depends on prelude.fr, term.fr, ptrace.fr.
+
+9 constant SIGKILL
+variable alive       \ -1 while the traced child is still stopped & steppable
+variable lsteps      \ how many dispatch boundaries we've advanced through
+
+\ l-step — single-step the child up to its next dispatch boundary (or note its death).
+\ On return, if `alive`, getregs is fresh: r-rax/r-rsi/r-rsp describe the live engine.
+: l-step ( -- )
+  begin
+    child @ ssstep  pwait  stopped? 0= if  0 alive !  exit  then   \ child exited
+    child @ getregs  dispatch?
+  until
+  lsteps @ 1+ lsteps ! ;
+
+\ .lstack — the child's live data stack (bottom..top), peeked out of the process.
+\ depth = (sp0 - child's %rsp)/8; item j from the bottom is at sp0 - j cells.
+variable lsj  variable ldepth
+: .lstack ( -- )
+  sp0 r-rsp -  8 /  ldepth !
+  1 lsj !
+  begin  lsj @ ldepth @ 1+ <  while
+    child @  sp0 lsj @ cells -  peekdata  .n space
+    lsj @ 1+ lsj !
+  repeat ;
+
+\ A small ring of the most-recent dispatched CFAs, for a scrolling trail.
+variable hist  10 cells allot  variable hn
+: hist! ( cfa -- )  hist  hn @ 10 mod cells +  !  hn @ 1+ hn ! ;
+: .hist ( -- )
+  hn @ 10 < if 0 else hn @ 10 - then          \ oldest index still in the ring
+  begin  dup hn @ <  while
+    hist  over 10 mod cells +  @  .dispatched space
+    1+
+  repeat  drop ;
+
+\ --- non-interactive core (testable in a pipe): print the live stack each step ---
+\ Proof that we're reading the *real* engine: tracing `5 square` shows the data stack
+\ evolve 5 -> 5 5 -> 25, peeked from the child at each dispatch.
+: live-trace ( n cfa -- )
+  fork dup 0= if
+    drop  traceme  getpid SIGSTOP kill  execute  bye
+  else
+    child !  2drop
+    -1 alive !  0 lsteps !
+    pwait drop
+    begin  l-step  alive @  while
+      r-rax .dispatched  [char] : emit space  .lstack  cr
+    repeat
+  then ;
+
+\ --- the interactive TUI -----------------------------------------------------
+variable lquit
+: .live  ( -- ) [char] l emit [char] i emit [char] v emit [char] e emit ;
+: .trail ( -- ) [char] t emit [char] r emit [char] a emit [char] i emit [char] l emit ;
+: .data  ( -- ) [char] d emit [char] a emit [char] t emit [char] a emit ;
+: .ended ( -- ) [char] e emit [char] x emit [char] i emit [char] t emit
+                [char] e emit [char] d emit ;
+: .keys  ( -- ) [char] s emit [char] p emit [char] a emit [char] c emit [char] e emit
+                [char] = emit [char] s emit [char] t emit [char] e emit [char] p emit space space
+                [char] q emit [char] = emit [char] q emit [char] u emit [char] i emit [char] t emit ;
+: draw-live ( -- )
+  clear
+  1 2 at  6 fg bold  .live  reset  space space [char] # emit  lsteps @ .n
+          space space  2 sgr [char] r emit [char] e emit [char] a emit [char] l emit
+          space [char] e emit [char] n emit [char] g emit [char] i emit [char] n emit [char] e emit  reset
+  3 2 at  2 sgr .trail reset  3 9 at  .hist
+  5 2 at  2 sgr .data  reset  5 9 at  alive @ if  .lstack  else  2 sgr .ended reset  then
+  7 2 at  .keys ;
+: live ( n cfa -- )                  \ usage:  <args> ' <word> live
+  fork dup 0= if
+    drop  traceme  getpid SIGSTOP kill  execute  bye
+  else
+    child !  2drop
+    -1 alive !  0 lsteps !  0 hn !  0 lquit !
+    pwait drop
+    alive @ if  l-step  alive @ if  r-rax hist!  then  then   \ advance to first dispatch
+    raw-on  hide-cursor
+    begin
+      draw-live
+      key                                                    ( c )
+      dup [char] q = if  drop  -1 lquit !
+      else dup 27 =  if  drop  -1 lquit !
+      else dup 0<    if  drop  -1 lquit !
+      else dup [char] s = over 32 = or if  drop
+             alive @ if  l-step  alive @ if  r-rax hist!  then  then
+      else drop
+      then then then then
+      lquit @
+    until
+    alive @ if  child @ SIGKILL kill  pwait drop  then       \ reap the child if still alive
+    show-cursor  reset  raw-off  cr  bye
+  then ;

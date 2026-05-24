@@ -52,8 +52,18 @@ holds two pieces:
   the callee and `call` shows `cube > square` (primitives stay atomic). Run it with **no
   Python**: `./fr prelude.fr term.fr ember.fr`, then type `5 ' square ember` (the kernel loads
   the files from `argv`, then the tty is the REPL so `raw-on` works). `./ember-fr` is a pty
-  wrapper for scripted testing + pre-typing the command. The Python `ember` keeps what fr
-  can't do: the `ptrace` backend over real machine instructions and its richer curses view.
+  wrapper for scripted testing + pre-typing the command. ember.fr *simulates* the engine.
+- **`ptrace.fr`** — process control + ptrace in fr (on `syscall6`): `fork`/`wait4`/`traceme`/
+  `ssstep`/`getregs`/`peekdata`. `watch` drives the *real* fr engine: fork (child shares the
+  memory image, so the parent's dictionary decodes the child's CFAs), single-step to each
+  `jmp *(%rax)` boundary, name `%rax`. `5 ' square watch` → `… execute square dup * ; bye`.
+- **`live.fr`** — `ember.fr`'s panels on the **live ptrace backend** (`ptrace.fr` + `term.fr`):
+  the visual stepper drives the *real* engine, reading the data stack with `peekdata` out of
+  the running child. `./fr prelude.fr term.fr ptrace.fr live.fr` then `5 ' square live` (or
+  `./ember-fr --live`). `trail` shows the live dispatch, `data` the real peeked stack
+  (`5 → 5 5 → 25`). So the Python `ember`'s NativeVM backend is now self-hosted too; the
+  Python explorer remains only as the more *mature* UI (Nord curses, dictionary panel), not
+  a capability fr lacks.
 - **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted), built on the
   prelude. `check{ … }`
   infers a phrase's `( in -- out )` by abstract stack simulation; `def name ( decl ) body ;`
@@ -92,9 +102,11 @@ echo '3 4 + 5 * .' | ./fr  # fr is a REPL: reads Forth from stdin until EOF
 ./ember --selftest         # headless check of the Python model  (the "test suite")
 ./ember --native-selftest  # headless check that drives ./fr under ptrace
 
-./fr prelude.fr term.fr ember.fr     # the SELF-HOSTED stepper, no Python (type: 5 ' square ember)
-./ember-fr "5 ' square ember"   # same, via a pty wrapper that pre-types the command
-./ember-fr --selftest           # headless pty check of ember.fr (scripts keystrokes)
+./fr prelude.fr term.fr ember.fr     # the SELF-HOSTED stepper (simulates), no Python
+./fr prelude.fr term.fr ptrace.fr live.fr   # the SELF-HOSTED stepper on the LIVE ptrace backend
+./ember-fr "5 ' square ember"   # ember.fr via a pty wrapper that pre-types the command
+./ember-fr --live "3 ' cube live"   # live.fr (real engine under ptrace) via the pty wrapper
+./ember-fr --selftest           # headless pty check of ember.fr; --live-selftest for live.fr
 ./test.sh                       # core suite: kernel/prelude/anvil/forge/term + reference specs
 ./test-ember.sh                 # the explorer's own suite (ember model, ptrace, ember.fr/pty)
 ./test.sh --all                 # both suites

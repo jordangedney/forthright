@@ -120,11 +120,13 @@ richer curses chrome. **On the ptrace backend** (the one piece this doc long cal
 syscalls, so `ptrace.fr`'s `watch` is a working **self-hosted NativeVM** — it forks the
 running fr (the child shares its memory image, so the parent's dictionary *is* the
 child's), runs a word in the child, single-steps it from the parent, and decodes `%rax`
-at each `jmp *(%rax)` dispatch into the word being run. `5 ' square watch` prints the real
-engine's trace, observed from fr. So fr can drive itself under ptrace; the Python `ember`
-stays only as the *richer, already-built* explorer (full curses chrome), not from
-necessity. **A subtlety that made `watch` simple:** forking instead of `execve`ing means
-no ELF/argv work and a shared dictionary — the parent decodes the child's CFAs for free.
+at each `jmp *(%rax)` dispatch into the word being run. **`live.fr`** then wraps that in a
+term.fr TUI — `ember`'s visual stepper driving the *real* engine, reading the live data
+stack with `peekdata` (`5 ' square live` shows it step `5 → 5 5 → 25`). So fr now matches
+the Python ember's full capability, ptrace backend included; the Python explorer stays only
+as the *more mature UI* (Nord curses, dictionary), not from necessity. **A subtlety that
+made this simple:** forking instead of `execve`ing means no ELF/argv work and a shared
+dictionary — the parent decodes the child's CFAs and finds the stack base (`sp0`) for free.
 
 ### ember.fr runs with no launcher; `ember-fr` is just a pty wrapper, and `q` exits fr
 `raw-on` does an `ioctl` on fd 0, which fails on a pipe — so `ember.fr` needs a real

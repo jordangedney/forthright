@@ -29,6 +29,7 @@ and **forges** its own verified code.
 | `ember.fr` | the **self-hosted** ember: an interactive stepper *in fr* (`./fr prelude.fr term.fr ember.fr`) |
 | `ember-fr` | a pty wrapper around that, for scripted testing + pre-typing the command |
 | `ptrace.fr` | ptrace *in fr* (`syscall6`); `watch` drives the real engine — a self-hosted NativeVM |
+| `live.fr` | the visual stepper *on the live ptrace backend* — `ember`'s TUI driving the real engine |
 | `build.sh` | `as` + `ld` → `fr` |
 | `anvil-reference.py`, `forge-reference.py` | Python specs for the fr versions |
 
@@ -292,10 +293,11 @@ synthesis loop `forge`, the terminal layer `term.fr`, and `ember.fr` — an inte
 visual stepper written in fr that *steps into colon words* (a `call`/`code`/`data` view,
 like the Python ember) and *follows control flow* (if/else and loops). Run it with no
 Python: `./fr prelude.fr term.fr ember.fr`, then type `3 ' cube ember`. fr writes,
-verifies, forges, and *watches* its own code — and with `syscall6` it can now even
-**ptrace** (`ptrace.fr` forks and single-steps a child), so driving the real engine
-under ptrace is reachable in fr too. The Python `ember` stays as the richer, already-built
-explorer (full curses chrome), not because fr can't do the job.
+verifies, forges, and *watches* its own code — and with `syscall6` it now **ptraces** too:
+`ptrace.fr` forks and single-steps a child, and **`live.fr` is the visual stepper driving
+the *real* engine** (reading the live data stack with `PEEKDATA`). So everything the Python
+`ember` could do, fr now does; the Python one stays only as the more mature UI (Nord curses,
+dictionary panel), not a capability fr lacks.
 
 Open directions if continuing: more `forge` targets / a smarter generator; pushing
 `s=`/`find`/`number` into the prelude for an even smaller kernel; allowing control flow
