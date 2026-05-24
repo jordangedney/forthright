@@ -117,9 +117,11 @@ trust chain (language + checker) stays small enough to audit. Load it, then eith
 infer a phrase's effect or define-and-check a word against its declared signature
 (effects print as `( x.. -- y.. )`, one glyph per cell):
 
-    ( cat anvil.fr; echo 'check{ dup dup * * }' )         | ./fr   # ( x -- y )
-    ( cat anvil.fr; echo 'def sq ( n -- n ) dup * ;' )    | ./fr   # sq ( x -- y )  ok
-    ( cat anvil.fr; echo 'def bad ( a b -- c ) + + ;' )   | ./fr   # bad ( xxx -- y )  BAD ( xx -- y )
+    ( cat prelude.fr anvil.fr; echo 'check{ dup dup * * }' )       | ./fr  # ( x -- y )
+    ( cat prelude.fr anvil.fr; echo 'def sq ( n -- n ) dup * ;' )  | ./fr  # sq ( x -- y )  ok
+    ( cat prelude.fr anvil.fr; echo 'def bad ( a b -- c ) + + ;' ) | ./fr  # BAD ( xx -- y )
+
+(anvil.fr builds on `prelude.fr`, fr's standard library — see below.)
 
 It keeps a name→`(consumes,produces)` table (`prim` for built-ins, `def` for new
 words). `check{ … }` / `def` read tokens, classify each (number / known word /
@@ -143,8 +145,13 @@ Python spec it follows.
       (shared `_create` header-builder; `dovar`/`doconst` runtimes)
 - [x] Parsing / strings / output: `word find number s= char [char] emit type cr`
       — the toolkit to read source, match names, and print a report (~2.8 KB text)
-- [x] Glue for practical programming: `exit 2dup 2drop nip rot 1+ 1- and or`,
-      `begin while repeat`; comments `\` and `(` (~3.3 KB text)
+- [x] Glue for practical programming: `exit rot and or begin while repeat`,
+      comments `\` `(`, division `/ mod`, and `latest` (dictionary introspection)
+- [x] **prelude.fr** — fr's standard library, words defined *in fr* and pulled out
+      of the assembly kernel (`1+ 1- 2dup 2drop nip cr space`, and `u.`, a decimal
+      number printer built from `/mod`). The rule now: if a word can be written in
+      fr, it goes here, not in fr.s. Load with `( cat prelude.fr prog.fr ) | ./fr`.
+      Kernel slimmed to ~3.2 KB. (anvil.fr builds on it.)
 - [x] **anvil.fr**, self-hosted: a stack-effect verifier written *in fr* (~110
       lines). `check{ … }` infers a phrase's `( in -- out )`; `def name ( decl )
       body ;` infers + registers a word's effect (so words compose) and flags any

@@ -13,7 +13,12 @@ holds two pieces:
 - **`ember`** — a Python/curses TUI that single-steps the engine and visualizes it. By
   default it drives the *real* `fr` binary under `ptrace`; `--python` uses an equivalent
   pure-Python model.
-- **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted). `check{ … }`
+- **`prelude.fr`** — fr's standard library: words derivable from the kernel primitives,
+  written in fr (`1+ 1- 2dup 2drop nip cr space u.`). The rule: **if a word can be defined
+  in fr, it goes in `prelude.fr`, not in `fr.s`.** Load it before any program that needs it:
+  `( cat prelude.fr yourprog.fr ) | ./fr`.
+- **`anvil.fr`** — a stack-effect verifier **written in fr** (self-hosted), built on the
+  prelude. `check{ … }`
   infers a phrase's `( in -- out )` by abstract stack simulation; `def name ( decl ) body ;`
   infers + registers a word's effect (so words compose) and flags mismatches with the
   declared signature. The project's reason for existing; `anvil-reference.py` is its spec.
@@ -36,7 +41,7 @@ gain features**:
 ./build.sh                 # assemble + link fr  (as --gstabs ; ld) -> ./fr
 echo '3 4 + 5 * .' | ./fr  # fr is a REPL: reads Forth from stdin until EOF
 ./fr                       # interactive; Ctrl-D / `bye` to quit
-( cat anvil.fr; echo 'check{ dup dup * * }' ) | ./fr   # self-hosted verifier -> in 1 / out 1
+( cat prelude.fr anvil.fr; echo 'check{ dup dup * * }' ) | ./fr   # self-hosted verifier -> ( x -- y )
 
 ./ember                    # TUI driving the real ./fr via ptrace (Linux; needs ~76x20)
 ./ember --python           # TUI on the pure-Python model instead

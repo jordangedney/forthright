@@ -650,54 +650,16 @@ code_TYPE:
 	NEXT
 
 # cr — defined in the language, in terms of emit.
-h_CR:	.quad h_TYPE
-	.byte 2
-	.ascii "cr"
-CR:	.quad docol			# ( -- )  emit a newline
-	.quad LIT
-	.quad 10
-	.quad EMIT
-	.quad EXIT
-
 # ---------------------------------------------------------------------------
-# Glue — the standard stack/arith/loop words that make fr practical to program
-# in (needed to write anvil.fr without contortions).
+# Remaining glue primitives. The derivable ones (cr 1+ 1- 2dup 2drop nip and
+# the like) now live in prelude.fr, defined in fr — load it for the full vocab.
 
-h_XEXIT: .quad h_CR
+h_XEXIT: .quad h_TYPE
 	.byte 4
 	.ascii "exit"
 XEXIT:	.quad code_EXIT			# ( -- )  return early from a definition
 
-h_2DUP:	.quad h_XEXIT
-	.byte 4
-	.ascii "2dup"
-TWODUP:	.quad code_2DUP			# ( a b -- a b a b )
-code_2DUP:
-	mov 8(%rsp), %rax
-	mov (%rsp), %rdx
-	push %rax
-	push %rdx
-	NEXT
-
-h_2DROP: .quad h_2DUP
-	.byte 5
-	.ascii "2drop"
-TWODROP: .quad code_2DROP		# ( a b -- )
-code_2DROP:
-	add $16, %rsp
-	NEXT
-
-h_NIP:	.quad h_2DROP
-	.byte 3
-	.ascii "nip"
-NIP:	.quad code_NIP			# ( a b -- b )
-code_NIP:
-	pop %rax
-	add $8, %rsp
-	push %rax
-	NEXT
-
-h_ROT:	.quad h_NIP
+h_ROT:	.quad h_XEXIT
 	.byte 3
 	.ascii "rot"
 ROT:	.quad code_ROT			# ( a b c -- b c a )
@@ -710,23 +672,7 @@ code_ROT:
 	mov %rax, (%rsp)
 	NEXT
 
-h_ONEPLUS: .quad h_ROT
-	.byte 2
-	.ascii "1+"
-ONEPLUS: .quad code_ONEPLUS		# ( n -- n+1 )
-code_ONEPLUS:
-	addq $1, (%rsp)
-	NEXT
-
-h_ONEMINUS: .quad h_ONEPLUS
-	.byte 2
-	.ascii "1-"
-ONEMINUS: .quad code_ONEMINUS		# ( n -- n-1 )
-code_ONEMINUS:
-	subq $1, (%rsp)
-	NEXT
-
-h_AND:	.quad h_ONEMINUS
+h_AND:	.quad h_ROT
 	.byte 3
 	.ascii "and"
 AND:	.quad code_AND			# ( a b -- a&b )  bitwise
@@ -804,6 +750,43 @@ code_PAREN:
 	cmp $41, %dl			# ')' ends the comment
 	jne .paren_loop
 .paren_done:
+	NEXT
+
+# ---------------------------------------------------------------------------
+# Division, and dictionary introspection (for prelude.fr's number printing and
+# a future self-hosted `see`).
+
+h_DIV:	.quad h_PAREN
+	.byte 1
+	.ascii "/"
+DIV:	.quad code_DIV			# ( a b -- a/b )  signed
+code_DIV:
+	pop %rcx
+	pop %rax
+	cqo				# sign-extend rax into rdx:rax
+	idiv %rcx
+	push %rax
+	NEXT
+
+h_MOD:	.quad h_DIV
+	.byte 3
+	.ascii "mod"
+MOD:	.quad code_MOD			# ( a b -- a mod b )
+code_MOD:
+	pop %rcx
+	pop %rax
+	cqo
+	idiv %rcx
+	push %rdx			# remainder
+	NEXT
+
+h_LATEST: .quad h_MOD
+	.byte 6
+	.ascii "latest"
+LATEST:	.quad code_LATEST		# ( -- header )  newest dictionary entry
+code_LATEST:
+	mov var_latest, %rax
+	push %rax
 	NEXT
 
 # ===========================================================================
@@ -1048,7 +1031,7 @@ errmsg:	.ascii " ?\n"
 	.equ errmsg_len, . - errmsg
 
 	.data
-var_latest: .quad h_PAREN		# newest dictionary entry (head of FIND)
+var_latest: .quad h_LATEST		# newest dictionary entry (head of FIND)
 var_state:  .quad 0			# 0 = interpret, 1 = compile
 var_here:   .quad dict_space		# next free byte for new definitions
 inbuf_len:  .quad 0			# valid bytes currently in inbuf

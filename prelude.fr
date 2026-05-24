@@ -1,0 +1,35 @@
+\ prelude.fr — fr's standard library: words derivable from the kernel primitives,
+\ written in fr itself. Keeping these out of fr.s keeps the assembly kernel small
+\ and auditable; load the prelude for the full vocabulary:
+\
+\     ( cat prelude.fr yourprog.fr ) | ./fr
+\
+\ As fr grows, the rule is: if a word can be defined in fr, it belongs here, not
+\ in fr.s. (anvil.fr depends on this prelude.)
+
+\ --- derived stack + arithmetic words (moved out of fr.s) --------------------
+: 1+    ( n -- n+1 )      1 + ;
+: 1-    ( n -- n-1 )      1 - ;
+: 2dup  ( a b -- a b a b ) over over ;
+: 2drop ( a b -- )        drop drop ;
+: nip   ( a b -- b )      swap drop ;
+
+\ --- output ------------------------------------------------------------------
+: cr    ( -- )   10 emit ;
+: space ( -- )   32 emit ;
+
+\ u. — print an unsigned number with no trailing newline, by extracting decimal
+\ digits with /mod into a buffer and typing them. The kernel's `.` always adds a
+\ newline; u. is the building block for inline / formatted numeric output.
+variable ubuf  32 allot
+variable up
+: u. ( u -- )
+  ubuf 32 + up !                 \ build digits from the end of the buffer
+  begin
+    dup 10 mod  [char] 0 +       ( u digit-char )
+    up @ 1-  dup up !  c!         ( store digit, predecrement up )
+    10 /
+    dup 0=
+  until
+  drop
+  up @   ubuf 32 + over -   type ;

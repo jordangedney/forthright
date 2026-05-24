@@ -37,8 +37,7 @@ variable cons-i variable prod-i       \ inferred effect of a def
 variable rg-c  variable rg-p          \ register cons/prod
 variable name-a variable name-n       \ a def's name
 
-: space ( -- )  32 emit ;
-: t.str ( -- addr len )  tok-a @ tok-n @ ;
+: t.str ( -- addr len )  tok-a @ tok-n @ ;   \ (space, cr, 1+, 2dup… come from prelude.fr)
 
 \ --- output: render an effect as ( x.. -- y.. ) ------------------------------
 : emits ( n c -- )  dc !  begin dup 0 > while  dc @ emit  1-  repeat  drop ;
