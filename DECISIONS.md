@@ -127,35 +127,23 @@ deleted; the prelude's `trace` already fills the lightweight no-ptrace "model" n
 ELF/argv work and a shared dictionary — the parent decodes the child's CFAs and finds the
 stack base (`sp0`) for free.
 
-### Python was removed from the repo (down to one test harness)
-Three Python files existed as the fr tools matured: a ~1200-line Python/curses `ember`
-explorer (a pure-Python engine model + a `NativeVM` that ptraced real `fr` via ELF symbols +
-`/proc/<pid>/mem`), and `anvil-reference.py` / `forge-reference.py` (the verifier and the
-generate→check→repair loop). **Why remove them:** once `ember.fr`, `anvil.fr`, and `forge.fr`
-were the real, self-hosted versions, the Python ones were redundant *implementations*, and a
-pile of Python quietly contradicts the project's "ship tiny auditable Forth, no runtime
-machinery" point. The **intent** worth keeping — the algorithms — was distilled into prose:
-`anvil-spec.md`, `forge-spec.md`. **What we give up:** they had been *runnable* cross-checks
-(`--selftest`, and an independent ptrace observer of the binary/dictionary layout); now the fr
-versions are canonical and the specs are read, not run. Judged worth it — fr's own
-`ember-trace`/`watch` + the `anvil`/`forge` fr tests exercise everything, a layout regression
-still surfaces in `test.sh --all`, and it's all recoverable from git history.
-**The last Python — the pty test harness — was ported to fr too.** The interactive
-`ember.fr`/`tetris.fr` can't be tested through a plain pipe (the child's first read swallows
-the canned input), so they need a *pty* with paced keystrokes. That was the one remaining
-Python file (`ember-pty`). It's now `lib/pty.fr` + `ember-test.fr`: fr opens `/dev/ptmx`,
-unlocks + names the slave with two `ioctl`s, `fork`s, and in the child `setsid`/`dup2`s the
-slave onto 0/1/2 and `execve`s a fresh `./fr ember.fr`; the parent (master `O_NONBLOCK`) paces
-keys, drains the frames, and asserts substrings. `syscall6` made this reachable — the same
-primitive that put ptrace in fr now puts the *test harness* in fr. The repo is Python-free.
+### Scripted TUI testing uses a pty harness, in fr
+The interactive `ember.fr`/`tetris.fr` can't be tested through a plain pipe — the child's
+first read swallows the whole canned input at once, so there's no way to *pace* keystrokes.
+They need a **pty** (so `raw-on` engages and input arrives one key at a time). That harness is
+itself fr: `lib/pty.fr` + `ember-test.fr` open `/dev/ptmx`, unlock + name the slave with two
+`ioctl`s, `fork`, and in the child `setsid`/`dup2` the slave onto 0/1/2 and `execve` a fresh
+`./fr ember.fr`; the parent (master `O_NONBLOCK`) paces keys, drains the frames, and asserts
+substrings. `syscall6` made this reachable — the same primitive that put ptrace in fr also
+puts the test harness in fr. (`anvil-spec.md`/`forge-spec.md` carry the algorithms in prose;
+keep them in sync as the tools grow.)
 
 ### `ember.fr` runs with no launcher; `ember-fr` is a one-line shell exec
 `raw-on` does an `ioctl` on fd 0, which fails on a pipe — so `ember.fr` needs a real tty.
 But for *interactive* use the **terminal already is that tty**, and the kernel loads the
-library from `argv`, so launching is just `./fr ember.fr` —
-no Python (`ember-fr` is exactly that one-line `exec`). Pacing scripted keystrokes through a
-pty (a pipe can't — fr's first read would swallow them) is purely a *test* concern, now handled
-by the fr-native `lib/pty.fr` + `ember-test.fr`. **Why
+library from `argv`, so launching is just `./fr ember.fr` (`ember-fr` is exactly that one-line
+`exec`). Pacing scripted keystrokes through a pty (a pipe can't — fr's first read would
+swallow them) is purely a *test* concern, handled by `lib/pty.fr` + `ember-test.fr`. **Why
 `q` calls `bye`:** the explorer is a single-shot view (like `htop`), so quitting it quits
 fr cleanly. (Re-targeting via the `e` edit line kills the child and forks a fresh one.)
 **Spelled-out labels** (`call` `code` `data` via per-char `emit`) predate fr's `s"`/`."`

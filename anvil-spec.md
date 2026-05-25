@@ -1,9 +1,7 @@
 # anvil — specification
 
-The reference description of what `anvil.fr` (the self-hosted stack-effect verifier)
-computes. This is the readable spec; `anvil.fr` is the implementation. (It began life
-as `anvil-reference.py`; the Python was retired once `anvil.fr` matched it — this file
-preserves the *intent*, which is the part worth keeping.)
+The reference description of what `anvil.fr` (the self-hosted static analyzer) computes.
+This is the readable spec; `anvil.fr` is the implementation — keep them in sync.
 
 ## What it does
 

@@ -33,13 +33,14 @@ impossible when a human had to sit in the writing seat.
 
 - **anvil** — the verifier; code gets hammered against it until it's stack-correct. The
   core of the whole bet: the redundancy Forth doesn't have, living *outside* the shipped
-  code. **Built** (`anvil.fr`, self-hosted): stack-effect checking + branch analysis;
-  richer type/intent checks later.
+  code. **Built** (`anvil.fr`, self-hosted): infers + checks stack effects, branches, loops,
+  the return stack, cell *kinds* (number / address / flag), recursion, and early-return
+  consistency — 10 verdicts in all — and `./anvil-audit FILE` checks whole programs.
 - **forge** — the generate → check → repair loop. **Built** (`forge.fr`, self-hosted): a
   breadth-first search stands in for the AI generator, and nothing is accepted unless anvil
   approves the shape and an example run confirms intent.
 - **ember** — the explorer: *watch* the engine run, cell by cell. The self-hosted `ember.fr`
-  drives the real engine under ptrace, with no Python.
+  drives the real engine under ptrace.
 - *(corpus)* — still open: generate-and-verify at scale to mint a synthetic training
   corpus, the one credible attack on Forth's "no training data" problem.
 
@@ -100,7 +101,7 @@ colon words. The view is a **full-screen, responsive** Nord dashboard (`lib/term
 true-colour `fg24`/`nord-*` words + `box` drawing; the layout re-reads `term-size` each
 frame), styled after the project's `index.html` design (ip=cyan, stack=orange, hop=purple,
 exec=yellow).
-It runs with **no Python at all**: the kernel loads the library from its file arguments,
+Launching it needs no harness: the kernel loads the library from its file arguments,
 the terminal is the tty `raw-on` needs, and you type a command at the prompt:
 
     ./fr ember.fr     # then type:  5 ' square ember
@@ -134,28 +135,48 @@ the next line: `5 5 5 +` rests at `10 5`, then `3 *` continues to `30 5`. A word
 **prints** has its stdout captured into the `out` panel — `launch` points the child's fd 1/2
 at a pipe, so the output shows up instead of corrupting the TUI. The non-interactive
 `ember-trace` prints the live stack per dispatch (no tty needed); the lighter, no-ptrace model
-is the prelude's `trace`. (A Python/curses `ember` was the original prototype — removed once
-this self-hosted one reached parity.)
+is the prelude's `trace`.
 
 ## Verifying it: anvil.fr (self-hosted)
 
-`anvil.fr` is the payoff — a stack-effect verifier **written in fr**, so the whole
-trust chain (language + checker) stays small enough to audit. Load it, then either
-infer a phrase's effect or define-and-check a word against its declared signature
-(effects print as `( x.. -- y.. )`, one glyph per cell):
+`anvil.fr` is the payoff — a static analyzer for fr, **written in fr**. Load it, then infer
+a phrase's effect or define-and-check a word against its declared signature (effects print
+as `( x.. -- y.. )`, one glyph per cell):
 
     echo 'check{ dup dup * * }'       | ./fr anvil.fr   # ( x -- y )
     echo 'def sq ( n -- n ) dup * ;'  | ./fr anvil.fr   # sq ( x -- y )  ok
     echo 'def bad ( a b -- c ) + + ;' | ./fr anvil.fr   # BAD ( xx -- y )
 
-(anvil.fr `include`s `lib/prelude.fr`, so loading it gives you the whole vocabulary — see below.)
+It started as arity-only and grew into a real checker. By abstract stack simulation
+(tracking running height + low-water, and a cell *kind* for each slot) it issues these
+verdicts — and a word can earn several at once:
 
-It keeps a name→`(consumes,produces)` table (`prim` for built-ins, `def` for new
-words). `check{ … }` / `def` read tokens, classify each (number / known word /
-unknown), and run the abstract stack simulation (`hgt`/`lo`): inputs `= -lo`,
-outputs `= inputs+hgt`. `def` registers the inferred effect (so words compose) and
-flags any disagreement with the declared `( … -- … )`. `anvil-spec.md` is the
-written reference spec it follows.
+| verdict | what it caught |
+|---|---|
+| `ok` | inferred effect matches the declaration |
+| `BAD ( … )` | inferred *arity* ≠ the declaration |
+| `? names` | unknown words, by name (typos / undefined) |
+| `br!` | `if/else/then` arms disagree, or a loop body isn't stack-neutral |
+| `ctl!` | unbalanced control structure (`if` with no `then`, &c.) |
+| `r!` | return stack unbalanced (`>r`/`r>`/`r@`) |
+| `ty!` | cell-kind error (`@` on a number, `*` on a flag, address + address) |
+| `/0!` | division by a literal zero |
+| `ex!` | early `exit`s leave different stack effects |
+| `dc!` | dead code after an `exit` |
+
+It handles `if/else/then`, `begin/until`, `begin/while/repeat`, counted `do/loop`, the
+return stack, declared recursion, and a conservative **type layer** (kinds flow from
+literals, comparisons, kind-named declarations, and across calls — *unknown is absorbing*,
+so false positives are essentially nil). `def`/`check{` register inferred effects so words
+compose. **`./anvil-audit FILE`** checks a whole program — it scans the file, follows
+`include`, checks every `:`/`def`, and skips top-level code (so it never *runs* the file).
+The entire `lib/` and both `examples/` audit clean. See the verdict gallery:
+
+    ./anvil-audit bugs.fr        # one deliberately-broken word per verdict
+    ./anvil-audit examples/tetris.fr
+
+`anvil-spec.md` is the written reference spec. It proves **shape (and a little kind), not
+value** — `dup +` checks fine as `( n -- n )` but doesn't square; intent is forge's job.
 
 ## Forging it: forge.fr (generate → check → repair, self-hosted)
 
@@ -211,13 +232,16 @@ new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checki
       dictionary (via `latest`) and the kernel's `sys` table of engine CFAs to
       disassemble any definition. `see square` → `dup * ;`; `see abs` →
       `dup 0 < 0b 16 negate ;`. fr introspecting itself. (Plus `.n`, signed print.)
-- [x] **anvil.fr**, self-hosted: a stack-effect verifier written *in fr* (~110
-      lines). `check{ … }` infers a phrase's `( in -- out )`; `def name ( decl )
-      body ;` infers + registers a word's effect (so words compose) and flags any
-      mismatch with the declared signature; **`if/else/then` are analyzed** — both
-      arms must leave the same net effect or it's flagged `br!` (an `if…then` with
-      no `else` must be height-neutral). The thesis made literal — the redundancy
-      Forth lacks, in a trust base small enough to audit. (`anvil-spec.md` = the spec.)
+- [x] **anvil.fr**, self-hosted: a static analyzer written *in fr*. `check{ … }` infers a
+      phrase's `( in -- out )`; `def name ( decl ) body ;` infers + checks a word against its
+      declaration. By abstract stack simulation it issues 10 verdicts — `ok` · `BAD` (arity)
+      · `?` (unknown words) · `br!` (branch/loop arms disagree) · `ctl!` (unbalanced control)
+      · `r!` (return stack) · `ty!` (cell kinds) · `/0!` (literal div-by-zero) · `ex!`
+      (early-return consistency) · `dc!` (dead code) — covering `if/else/then`, loops,
+      `do/loop`, recursion, and a conservative number/address/flag type layer.
+      **`./anvil-audit FILE`** checks whole programs (the lib + both examples audit clean);
+      `bugs.fr` is the verdict gallery. The thesis made literal — the redundancy Forth lacks,
+      living outside the artifact. (`anvil-spec.md` = the spec.)
 - [x] **forge.fr** — the generate → check → repair loop, *self-hosted in fr*: a
       generator builds candidate bodies, the self-hosted `anvil` (`check-body`)
       verifies each stack effect, shape-valid candidates are `execute`d on examples,
@@ -248,6 +272,5 @@ new pieces — `execute` (kernel), `'` (prelude), and `check-body` (anvil checki
       data stack with `PEEKDATA` (`5 → 5 5 → 25`). `s` steps, **`a` autoplays** (`+`/`-` speed),
       `r` runs, `e` is a live edit line (re-fork on a new target); the `dict` panel hides the
       explorer's own plumbing, and a printing word's stdout is **captured into the `out` panel**
-      (the child's fd 1/2 are piped). No Python — the terminal is the tty. fr now writes,
-      verifies, forges, *and watches its own engine run*. (A Python/curses `ember` was the
-      original prototype, kept until this reached parity; now removed.)
+      (the child's fd 1/2 are piped) — the terminal is the tty. fr now writes,
+      verifies, forges, *and watches its own engine run*.

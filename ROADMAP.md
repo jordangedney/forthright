@@ -6,12 +6,12 @@ where I'd push next and why," not a contract.
 
 ## Where we are
 
-The thesis is **proven in miniature**: a ~3 KB auditable Forth kernel, a standard
-library written in itself, a stack-effect verifier (`anvil`) written in fr, and a
+The thesis is **proven in miniature**: an ITC Forth kernel, a standard
+library written in itself, a static analyzer (`anvil`) written in fr, and a
 generate→check→repair loop (`forge`) that synthesizes verified words — all
-self-hosting, trust base small enough to read in a sitting. The *explorer* is
-self-hosted too now: `syscall6` opened the OS to fr, so `ptrace.fr` + `ember.fr` (a
-visual stepper driving the **real** engine under ptrace) run with no Python. There's
+self-hosting. The *explorer* is self-hosted too now: `syscall6` opened the OS to fr, so
+`ptrace.fr` + `ember.fr` (a visual stepper driving the **real** engine under ptrace) run on
+fr alone. There's
 now a real **module system** (`include`, load-once) and a **`lib/` standard library**
 (math, string, fmt, random, term, key, draw, tui, time, io) on a few new kernel primitives
 (`include`, `s"`/`."` string literals, `cmove fill xor lshift rshift`), so building
@@ -21,21 +21,18 @@ TUI apps in fr is ergonomic (`./fr app.fr`). What's *not* done is making the loo
 
 ## Principles to keep (don't break these)
 
-- **The kernel is the trust base. Guard its size.** Every byte of `fr.s` is
-  something a human must read to trust the whole stack. The rule *"if a word can be
-  written in fr, it goes in `prelude.fr`, not the kernel"* is the whole game. When
-  tempted to add a primitive, ask whether it's truly irreducible.
-- **Keep the tools specified.** `anvil`/`forge` began as Python reference *implementations*;
-  once the fr versions matched them, the Python was retired and the intent distilled into
-  written specs (`anvil-spec.md`, `forge-spec.md`) — keep those in sync as the tools grow, so
-  the algorithm stays readable outside the fr source. (The repo is now **entirely Python-free** —
-  even the scripted pty test harness is fr, `lib/pty.fr` + `ember-test.fr`; the Python/curses
-  `ember` prototype and the `ember-pty` harness were both removed once their fr replacements landed.)
+- **The kernel holds only irreducible primitives.** The rule *"if a word can be written in
+  fr, it goes in `prelude.fr`, not the kernel"* keeps the bootstrap clean — when tempted to
+  add a primitive, ask whether it's truly irreducible (the parse/compile/IO bootstrap +
+  syscalls are; the rest isn't).
+- **Keep the tools specified.** `anvil`/`forge` carry written specs (`anvil-spec.md`,
+  `forge-spec.md`) — keep those in sync as the tools grow, so the algorithm stays readable
+  outside the fr source.
 - **Verification is the point, not the generator.** Whatever proposes code (a dumb
   search, an LLM), the guarantee comes from `anvil`. Never let the generator's
   output be trusted without the gate.
-- **Auditability over performance.** ITC is slow; that's a feature here. Don't
-  reach for native compilation unless minimalism/auditability is preserved.
+- **Self-hosting over performance.** ITC is slow; that's fine here — keep everything in fr
+  rather than reaching for native compilation.
 
 ## Three arcs
 
@@ -107,15 +104,14 @@ assembly is a throwaway bootstrap.
   `key` read timeout via VMIN/VTIME), `r` run-to-end, `e` the live edit line (**a REPL** — each
   line is compiled with the resting stack re-pushed in front and stepped; at the top-level EXIT
   it snapshots the stack and rests instead of exiting, so `5 5 5 +` rests at `10 5` and `3 *`
-  continues to `30 5`), `q`/`Esc` quit. It runs with no Python (`./ember-fr` is a one-line shell exec); the
+  continues to `30 5`), `q`/`Esc` quit. It runs on fr alone (`./ember-fr` is a one-line shell exec); the
   kernel also **loads source from argv** + reassembles tokens/comments across refills. (An
   earlier *simulator* ember.fr was dropped once the real-engine version existed; the prelude's
   `trace` is the lightweight model.) It also captures output — the **OUTPUT panel — DONE**:
   `launch` points the child's fd 1/2 at an O_NONBLOCK pipe and the parent drains it non-blocking
   each frame into a scrollback buffer, so a word that prints shows up in the panel instead of
   corrupting the TUI. (Both pipe ends are O_NONBLOCK on purpose: a blocking write end would
-  deadlock the single-stepper.) The Python/curses `ember` prototype this grew from has been
-  removed now that the fr-native explorer covers it. Left to close (polish):
+  deadlock the single-stepper.) Left to close (polish):
   - A perf tweak: coalesce the per-byte `emit` writes into one `type`/frame (flicker is
     already gone via in-place redraw; wants `s"`-style string building or a scratch buffer).
 
@@ -131,10 +127,9 @@ effects.
 ## North star
 
 A session where you state, in plain terms, what you want a word to do; an AI drafts
-it in fr; `anvil` — Forth, ~100 lines, that you have read — rejects the draft with a
-precise reason; the AI repairs; anvil accepts; and you ship a word you trust *not
-because you trust the AI, but because you trust the verifier and the verifier is
-small enough to trust*. Everything in the loop except the AI is fr you can audit.
+it in fr; `anvil` — Forth you have read — rejects the draft with a precise reason; the AI
+repairs; anvil accepts; and you ship a word you trust *not because you trust the AI, but
+because you trust the verifier*. Everything in the loop except the AI is fr.
 That's the whole bet, and it's within reach from here.
 
 ## Small, well-scoped TODOs (grab one)

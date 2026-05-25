@@ -1,0 +1,16 @@
+\ bugs.fr — anvil's verdict gallery. Every word below is deliberately WRONG, one per
+\ verdict, so you can see at a glance what anvil catches. Run it through the auditor:
+\
+\     ./anvil-audit bugs.fr
+\
+\ Each line prints the word, its inferred ( in -- out ), and the verdict it earns.
+
+: g-unknown  ( -- )      flibbertigibbet ;            \ ? flibbertigibbet   (undefined word / typo)
+: g-arity    ( a b -- c ) + + ;                       \ BAD ( xxx -- y )    (consumes 3, declares 2)
+: g-branch   0< if dup then ;                         \ br!                 (the if-arm isn't stack-neutral)
+: g-control  ( n -- n )  dup 0= if 1+ ;               \ ctl!                (`if` with no `then`)
+: g-rstack   ( n -- )    >r ;                         \ r!                  (a `>r` with no `r>`)
+: g-type     ( n -- n )  @ ;                          \ ty!                 (`@` on a number, not an address)
+: g-divzero  ( n -- n )  0 / ;                        \ /0!                 (division by a literal zero)
+: g-exit     ( n -- )    dup 0= if exit then drop ;   \ ex!                 (exit leaves a different stack)
+: g-deadcode ( n -- n )  dup 0< if negate exit 99 then ;  \ dc!             (the 99 can never run)

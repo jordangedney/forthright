@@ -11,25 +11,25 @@ tour. Everything lives in `~/vibing/forthright`.
 
 forthright is an experiment: *Forth's one real weakness is the human burden of an
 invisible stack; in an AI era you can keep the language minimal and supply the
-missing error-correcting redundancy with a verifier — and keep the whole trust
-base small by writing that verifier in the language itself.*
+missing error-correcting redundancy with a verifier — written in the language itself.*
 
 It is realized as a self-hosting stack: a tiny Forth that writes, **verifies**,
 and **forges** its own verified code.
 
 | file | what it is |
 |---|---|
-| `fr.s` | the kernel: a freestanding x86-64 Forth (~3 KB, no libc) in GNU assembler |
+| `fr.s` | the kernel: a freestanding x86-64 Forth (no libc) in GNU assembler |
 | `fr` | the built binary (a REPL reading stdin) |
 | `lib/` | the self-hosted standard library (`prelude math string fmt term key draw tui time io ptrace`); files `include` their deps — see `lib/README.md` |
 | `lib/prelude.fr` | fr's core vocabulary — everything derivable, written *in fr* |
-| `anvil.fr` | a stack-effect **verifier**, written *in fr* |
+| `anvil.fr` | a static **analyzer/verifier**, written *in fr* (10 verdicts; see §6) |
+| `anvil-audit`, `bugs.fr` | check a whole file with anvil; the verdict gallery (one broken word per verdict) |
 | `forge.fr` | generate→check→repair loop, written *in fr* (synthesizes verified words) |
 | `lib/term.fr` | terminal control *in fr*: ANSI escapes + termios raw mode (the TUI substrate) |
 | `lib/ptrace.fr` | ptrace *in fr* (`syscall6`); `watch` drives the real engine — a self-hosted NativeVM |
 | `ember.fr` | the **self-hosted explorer**: a visual stepper driving the *real* engine via ptrace |
 | `ember-fr` | shell launcher: runs `ember.fr`; no arg = bare `ember` (edit prompt), or pass a command |
-| `lib/pty.fr`, `ember-test.fr` | fr-native pty harness for *scripted* (paced) testing of the TUIs (no Python) |
+| `lib/pty.fr`, `ember-test.fr` | fr-native pty harness for *scripted* (paced) testing of the TUIs |
 | `examples/` | programs on the lib: `demo.fr`, `tetris.fr` |
 | `build.sh` | `as` + `ld` → `fr` |
 | `anvil-spec.md`, `forge-spec.md` | reference specs (markdown) for `anvil.fr`/`forge.fr` |
@@ -218,18 +218,22 @@ The kernel stays minimal; the library grows. (Words kept in the kernel anyway:
 
 ## 6. anvil and forge (the verifier and the loop)
 
-**anvil** (`anvil.fr`) is a stack-effect verifier written in fr. Load it after the
-prelude. It keeps a table mapping a word → `(consumes, produces)` and runs an
-abstract stack simulation (`hgt` height, `lo` low-water mark; inputs = `-lo`,
-outputs = `inputs + hgt`).
+**anvil** (`anvil.fr`) is a static analyzer for fr, written in fr. Load it after the
+prelude. It keeps a table mapping a word → its effect + cell kinds, and runs an abstract
+stack simulation (`hgt` height, `lo` low-water; inputs = `-lo`, outputs = `inputs + hgt`)
+with a kind (number / address / flag) tracked per slot.
 - `check{ words… }` — infer a straight-line phrase's effect, printed `( x.. -- y.. )`.
 - `def name ( in -- out ) body ;` — infer a definition's effect, register it (so
-  later words compose), and flag any mismatch with the declared signature (`BAD`).
-- `if/else/then` are analyzed: both arms must leave the same net effect or it's
-  flagged `br!`.
-- `check-body ( body -- in out )` — verify a *compiled* body (walk it by CFA). This
-  is what `forge` calls.
-Key idea: anvil checks **shape (consistency)**, not **intent**. A balanced stack ≠ a
+  later words compose), and check it against the declaration.
+- It issues 10 verdicts — `ok` · `BAD` (arity) · `?` (unknown words) · `br!` (branch/loop
+  arms disagree) · `ctl!` (unbalanced control) · `r!` (return stack) · `ty!` (cell kinds) ·
+  `/0!` (literal div-by-zero) · `ex!` (early-return consistency) · `dc!` (dead code) —
+  covering `if/else/then`, `begin/until`, `begin/while/repeat`, `do/loop`, and recursion.
+- **`./anvil-audit FILE`** checks a whole program (follows `include`, skips top-level code,
+  never runs it); `bugs.fr` is a gallery with one broken word per verdict. The whole `lib/`
+  and both `examples/` audit clean.
+- `check-body ( body -- in out )` — verify a *compiled* body by CFA; this is what `forge` calls.
+Key idea: anvil checks **shape (+ a little kind)**, not **intent**. A balanced stack ≠ a
 correct program — see forge.
 
 **forge** (`forge.fr`) is the thesis end to end. A breadth-first generator builds
@@ -301,10 +305,9 @@ engine under ptrace: it forks a child, single-steps it, and shows a **full-scree
 view (`code`/`data`/`call`/`dict` + an `out` line) with the data stack read straight out of the
 process (`PEEKDATA`). `s` steps, `a` autoplays (`+`/`-` speed), `r` runs, `e` re-targets live,
 and a printing word's stdout is captured into the `out` panel (the child's fd 1/2 are piped, so
-it can't corrupt the TUI). Run it with no Python: `./fr ember.fr`, then type `5 ' square ember`.
+it can't corrupt the TUI). Run it with `./fr ember.fr`, then type `5 ' square ember`.
 fr writes, verifies, forges, *watches its own engine run*, and runs TUI apps like
-`examples/tetris.fr` — all with no Python in the loop. (A Python/curses `ember` was the
-original explorer prototype; it was removed once `ember.fr` reached parity.)
+`examples/tetris.fr` — all in fr.
 
 Open directions if continuing: more `forge` targets / a smarter generator; pushing
 `s=`/`find`/`number` into the prelude for an even smaller kernel; allowing control flow

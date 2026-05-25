@@ -1,0 +1,7 @@
+#!/bin/sh
+# anvil-audit FILE [FILE...] — statically check whole fr source files with anvil.
+# Reports every  :  /  def  definition (following `include`s, auditing the dep tree),
+# registers each variable/constant, and skips all top-level program code (so the file
+# is never run). See anvil-spec.md for the verdicts.
+cd "$(dirname "$0")" || exit 2
+{ echo audit; cat "$@"; } | ./fr anvil.fr

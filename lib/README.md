@@ -47,7 +47,7 @@ but `include` is the ergonomic way.)
 | `time.fr`    | clock + sleep | `now-ms sleep-ms` |
 | `io.fr`      | files | `open-r open-w read-fd write-fd close-fd dup2 zpath` |
 | `ptrace.fr`  | process control + ptrace | `fork wait4 traceme getregs peekdata watch` |
-| `pty.fr`     | spawn a program on a pty + drive it (the no-Python test harness for the TUIs) | `pty-start pty-line pty-keys pty-wait contains? pty-stop` |
+| `pty.fr`     | spawn a program on a pty + drive it (the fr test harness for the TUIs) | `pty-start pty-line pty-keys pty-wait contains? pty-stop` |
 
 ## Conventions & gotchas
 

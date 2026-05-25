@@ -1,9 +1,8 @@
 # forge — specification
 
 The reference description of the **generate → check → repair** loop — the forthright
-thesis in miniature. `forge.fr` is the implementation. (It began as `forge-reference.py`,
-a host-language driver of the *real* self-hosted `anvil`; the Python was retired once
-`forge.fr` ran the loop entirely in fr. This file preserves the intent.)
+thesis in miniature. `forge.fr` is the implementation; this file is the readable spec —
+keep them in sync.
 
 ## The loop
 

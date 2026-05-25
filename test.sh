@@ -89,6 +89,8 @@ check "anvil: real lib (io) clean"  "$(sed -E '/^[[:space:]]*include /d; s/^([[:
 # `audit` scans a whole user file (following includes, skipping top-level code) — tetris + its
 # entire dependency tree must verify with no verdict lines (verdicts print at column 0).
 check "anvil: audits tetris clean"  "$( ( echo audit; cat examples/tetris.fr ) | timeout 30 ./fr anvil.fr 2>&1 | grep -cE '^(BAD|br!|ctl!|r!|ty!|/0!|ex!|dc!|\? )')" "0"
+# bugs.fr is the verdict gallery: one deliberately-broken word per verdict — all 9 must fire.
+check "anvil: verdict gallery"      "$(./anvil-audit bugs.fr 2>&1 | grep -cE '^(\? |BAD|br!|ctl!|r!|ty!|/0!|ex!|dc!)')" "9"
 check "forge: synthesizes dup *"   "$(echo forge | ./fr forge.fr)"                                    "dup *"
 
 # --all (or -a): also run the explorer suite, folding its result into the exit code.
